@@ -16,11 +16,11 @@ Cách dùng:
 from evaluation.fid import FIDCalculator
 
 fid_calc = FIDCalculator(device='cuda', cache_dir='outputs/metrics/cache')
-# real_loader và fake_loader là torch.utils.data.DataLoader
+real_loader và fake_loader là torch.utils.data.DataLoader
 fid_score = fid_calc.calculate_fid(real_loader, fake_loader, dataset_name="cifar10")
 print(f"FID Score: {fid_score}")
 
-# Tính FID theo từng class (Conditional)
+Tính FID theo từng class (Conditional)
 class_fids, mean_fid = fid_calc.calculate_fid_per_class(
     real_loader, fake_loader, class_indices=[0, 1, 2], use_cache=True
 )
@@ -43,7 +43,7 @@ Cách dùng:
 from evaluation.diversity import DiversityCalculator
 
 div_calc = DiversityCalculator(device='cuda')
-# fake_images là tensor (N, C, H, W)
+fake_images là tensor (N, C, H, W)
 diversity_score = div_calc.calculate_lpips_diversity(fake_images)
 ms_ssim_score = div_calc.calculate_ms_ssim(fake_images)
 
@@ -61,23 +61,24 @@ Cách dùng:
 python
 from evaluation.interpolation import make_conditional_interpolation_grid
 
-# z1, z2 là các vector latent ngẫu nhiên
-# mode="same_class" để giữ nguyên nhãn, mode="diff_class" để chuyển đổi nhãn
+z1, z2 là các vector latent ngẫu nhiên
+mode="same_class" để giữ nguyên nhãn, mode="diff_class" để chuyển đổi nhãn
 grid = make_conditional_interpolation_grid(
     model, z1, z2, label1=3, label2=5, steps=8, method="slerp", mode="diff_class"
 )
 
-# Lưu grid ảnh (grid là tensor)
+Lưu grid ảnh (grid là tensor)
 import torchvision.utils as vutils
 vutils.save_image(grid, "outputs/samples/interpolation_grid.png")
 
-3. Quy trình chạy Benchmark tổng thể
+## 3. Quy trình chạy Benchmark tổng thể
 
 Sử dụng script scripts/run_benchmark.py để chạy đánh giá và xuất kết quả ra file JSON.
 
 Kết quả đầu ra (outputs/metrics/benchmark_results.json) sẽ có cấu trúc:
 
 json
+```text
 {
     "dataset": "cifar10",
     "model": "dcgan",
@@ -88,3 +89,4 @@ json
     "diversity_ms_ssim": 0.62,
     "timestamp": "2023-10-27T10:00:00"
 }
+```
