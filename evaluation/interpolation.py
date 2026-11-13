@@ -10,9 +10,13 @@ def linear_interpolate(z1, z2, steps=8):
 
 def slerp(z1, z2, steps=8, eps=1e-8):
     """Nội suy cầu (Spherical Linear Interpolation) — mượt hơn linear với VAE/GAN."""
-    z1_norm = z1 / (z1.norm() + eps)
-    z2_norm = z2 / (z2.norm() + eps)
-    dot = torch.clamp((z1_norm * z2_norm).sum(), -1.0, 1.0)
+    # Chuẩn hóa để tính góc
+    z1_norm_val = z1.norm()
+    z2_norm_val = z2.norm()
+    z1_n = z1 / (z1_norm_val + eps)
+    z2_n = z2 / (z2_norm_val + eps)
+    
+    dot = torch.clamp((z1_n * z2_n).sum(), -1.0, 1.0)
     omega = torch.acos(dot)
     sin_omega = torch.sin(omega) + eps
 
@@ -20,12 +24,13 @@ def slerp(z1, z2, steps=8, eps=1e-8):
     zs = []
     for a in alphas:
         if omega.abs() < eps:
-            zs.append(z1 * (1 - a) + z2 * a)
+            z = z1 * (1 - a) + z2 * a
         else:
-            zs.append(
-                (torch.sin((1 - a) * omega) / sin_omega) * z1
-                + (torch.sin(a * omega) / sin_omega) * z2
-            )
+            # Nội suy hướng (slerp) và nội suy độ dài (lerp)
+            dir_interp = (torch.sin((1 - a) * omega) / sin_omega) * z1_n + (torch.sin(a * omega) / sin_omega) * z2_n
+            norm_interp = z1_norm_val * (1 - a) + z2_norm_val * a
+            z = dir_interp * norm_interp
+        zs.append(z)
     return torch.stack(zs)
 
 def make_interpolation_grid(model, z1, z2, steps=8, method="slerp"):
@@ -88,12 +93,20 @@ def make_conditional_interpolation_grid(model, z1, z2, label1, label2, steps=8, 
 
     with torch.no_grad():
         # Truyền thêm labels vào hàm decode
-        try:
-            imgs = model.decode(zs, labels)
-        except TypeError:
-            # Fallback nếu model không nhận label (như VAE thường)
-            print("Model.decode does not accept labels. Falling back to unconditional decode.")
-            imgs = model.decode(zs)
+        if model_type == "ddpm":
+            # zs lúc này đóng vai trò là nhiễu x_T
+            try:
+                imgs = model.sample_from_noise(zs, labels)
+            except AttributeError:
+                # Nếu model chưa có hàm sample_from_noise, gọi hàm helper
+                imgs = ddpm_sampling_wrapper(model, zs, labels)
+        else :
+            try:
+                imgs = model.decode(zs, labels)
+            except TypeError:
+                # Fallback nếu model không nhận label (như VAE thường)
+                print("Model.decode does not accept labels. Falling back to unconditional decode.")
+                imgs = model.decode(zs)
             
     imgs = (imgs.clamp(-1, 1) + 1) / 2 if imgs.min() < 0 else imgs.clamp(0, 1)
     grid = torch.cat([imgs[i] for i in range(steps)], dim=-1)

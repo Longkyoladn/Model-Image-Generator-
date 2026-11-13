@@ -3,6 +3,7 @@
 import torch
 import torch.nn.functional as F
 import lpips # Cần pip install lpips
+from pytorch_msssim import ms_ssim
 
 class DiversityCalculator:
     def __init__(self, device='cuda'):
@@ -30,7 +31,9 @@ class DiversityCalculator:
         if n < 2:
             return 0.0
             
-        # Lấy ngẫu nhiên các cặp
+        # Lấy ngẫu nhiên các cặp, đảm bảo không vượt quá số lượng ảnh có sẵn.
+        num_pairs = min(num_pairs, n // 2)
+
         indices = torch.randperm(n)
         img1 = images[indices[:num_pairs]]
         img2 = images[indices[num_pairs:num_pairs*2]]
@@ -69,10 +72,10 @@ class DiversityCalculator:
             
         # Tính MS-SSIM (chạy trên GPU nếu có)
         with torch.no_grad():
-            # pytorch_msssim yêu cầu size > 160, nếu ảnh nhỏ (32x32, 28x28) cần resize tạm
-            if img1.shape[-1] < 160:
-                img1_resized = F.interpolate(img1, size=(160, 160), mode='bilinear', align_corners=False)
-                img2_resized = F.interpolate(img2, size=(160, 160), mode='bilinear', align_corners=False)
+            # pytorch_msssim yêu cầu size > 256, nếu ảnh nhỏ (32x32, 28x28) cần resize tạm
+            if img1.shape[-1] < 256:
+                img1_resized = F.interpolate(img1, size=(256, 256), mode='bilinear', align_corners=False)
+                img2_resized = F.interpolate(img2, size=(256, 256), mode='bilinear', align_corners=False)
                 score = ms_ssim(img1_resized, img2_resized, data_range=1.0, size_average=True)
             else:
                 score = ms_ssim(img1, img2, data_range=1.0, size_average=True)
