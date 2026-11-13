@@ -1,0 +1,29 @@
+# Config thực nghiệm DCGAN Baseline trên Fashion-MNIST
+experiment:
+  name: "dcgan_fashion_mnist_baseline"
+  dataset_config: "configs/datasets/fashion_mnist.yaml"
+  conditional: false
+  random_seed: 42
+
+model:
+  type: "dcgan"
+  latent_dim: 100
+  image_size: 32
+  channels: 1
+  hidden_dim: 64
+
+training:
+  epochs: 25
+  batch_size: 64
+  lr_g: 0.0002
+  lr_d: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  sample_interval_epochs: 1
+  checkpoint_interval_epochs: 5
+  num_fixed_samples: 16
+
+tracking:
+  monitor_mode_collapse: true
+  min_diversity_threshold: 0.05
+

@@ -1,0 +1,27 @@
+# Config thực nghiệm Conditional DCGAN trên CIFAR-10 (10 lớp)
+experiment:
+  name: "cdcgan_cifar10_conditional"
+  dataset_config: "configs/datasets/cifar10.yaml"
+  conditional: true
+  num_classes: 10
+  random_seed: 42
+
+model:
+  type: "cdcgan"
+  latent_dim: 100
+  embed_dim: 50
+  image_size: 32
+  channels: 3
+  hidden_dim: 64
+
+training:
+  epochs: 40
+  batch_size: 64
+  lr_g: 0.0002
+  lr_d: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  sample_interval_epochs: 1
+  checkpoint_interval_epochs: 5
+  num_fixed_samples: 20
+

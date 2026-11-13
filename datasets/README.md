@@ -1,107 +1,104 @@
 # Datasets
 
-Dự án huấn luyện và đánh giá VAE, DCGAN và DDPM trên cả ba bộ dữ liệu: CelebA, Fashion-MNIST và CIFAR-10.
+Dự án huấn luyện và đánh giá VAE, DCGAN và DDPM trên cả ba bộ dữ liệu: **CelebA**, **Fashion-MNIST** và **CIFAR-10**.
 
-Dataset không được commit vào repository. Dữ liệu nên được truy cập từ Google Drive, Kaggle Dataset hoặc tự động tải trong runtime Colab/Kaggle khi nguồn chính thức cho phép.
+Dataset không được commit vào repository. Dữ liệu được truy cập từ Google Drive, Kaggle Dataset hoặc tự động tải trong runtime Colab/Kaggle.
 
-## CelebA
+---
 
-- Tên đầy đủ: CelebFaces Attributes Dataset.
-- Nguồn: [CelebA dataset](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
-- Nội dung: hơn 200.000 ảnh khuôn mặt người nổi tiếng, kèm landmark và các thuộc tính khuôn mặt.
-- Ảnh gốc là ảnh màu RGB với kích thước không phải 64×64.
-- Preprocessing khởi điểm: center crop khuôn mặt, resize về 64×64, chuyển tensor và normalize theo config.
-- Unconditional generation dùng toàn bộ ảnh trong split huấn luyện.
-- Conditional generation cần chốt một hoặc một số facial attribute chung cho cả ba mô hình.
-- Phải dùng cùng split và cùng preprocessing cho VAE, DCGAN và DDPM.
+## 1. Thông tin ba Dataset (Đã hoàn thiện bởi Lâm)
 
-## Fashion-MNIST
+| Tiêu chí | CelebA | Fashion-MNIST | CIFAR-10 |
+|---|:---:|:---:|:---:|
+| **Kích thước đầu vào cuối** | **64×64** | **32×32** *(pad/resize từ 28)* | **32×32** |
+| **Số kênh màu** | 3 (RGB) | 1 (Grayscale) | 3 (RGB) |
+| **Tập Train** | 162,770 ảnh | 50,000 ảnh | 40,000 ảnh |
+| **Tập Validation** | 19,867 ảnh | 10,000 ảnh | 10,000 ảnh |
+| **Tập Test** | 19,962 ảnh | 10,000 ảnh | 10,000 ảnh |
+| **Tổng số mẫu** | 202,599 ảnh | 70,000 ảnh | 60,000 ảnh |
+| **Random Seed Split** | 42 (file txt chuẩn) | 42 (`fashion_mnist_split.json`) | 42 (`cifar10_split.json`) |
+| **Miền chuẩn hóa** | `[-1, 1]` | `[-1, 1]` | `[-1, 1]` |
+| **Augmentation (Train)** | RandomHorizontalFlip(p=0.5) | RandomHorizontalFlip(p=0.5) | RandomHorizontalFlip(p=0.5) |
+| **Điều kiện (Conditional)** | Thuộc tính: "Smiling" (2 lớp: 0/1) | 10 lớp trang phục (0-9) | 10 lớp đối tượng (0-9) |
 
-- Nguồn: [Fashion-MNIST](https://github.com/zalandoresearch/fashion-mnist).
-- Nội dung: 70.000 ảnh grayscale thuộc 10 lớp trang phục, gồm 60.000 ảnh train và 10.000 ảnh test.
-- Kích thước gốc: 28×28, một kênh.
-- Preprocessing khởi điểm: giữ 28×28 hoặc padding/resize thành 32×32 theo config đã thống nhất.
-- Conditional generation sử dụng 10 nhãn lớp có sẵn.
-- Khi tính FID, phải dùng cùng quy tắc chuyển ảnh grayscale sang định dạng mà feature extractor yêu cầu cho cả ba mô hình.
+---
 
-Mười lớp:
+## 2. Chi tiết từng tập dữ liệu & Pipeline Preprocessing
 
-```text
-0 T-shirt/top
-1 Trouser
-2 Pullover
-3 Dress
-4 Coat
-5 Sandal
-6 Shirt
-7 Sneaker
-8 Bag
-9 Ankle boot
+### 2.1. CelebA (CelebFaces Attributes Dataset)
+- **Nguồn**: [CelebA](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html) hoặc Kaggle Dataset `jessicali9530/celeba-dataset`.
+- **Đặc điểm ảnh gốc**: 178×218 pixel, ảnh chân dung khuôn mặt người nổi tiếng.
+- **Quy trình tiền xử lý**:
+  1. `transforms.CenterCrop(140)`: Cắt trung tâm khuôn mặt để loại bỏ nền viền.
+  2. `transforms.Resize((64, 64))`: Đưa về kích thước chuẩn 64×64.
+  3. `transforms.RandomHorizontalFlip(p=0.5)` (chỉ áp dụng tập train).
+  4. `transforms.ToTensor()`: Ánh xạ pixel về $[0.0, 1.0]$.
+  5. `transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])`: Chuẩn hóa về `[-1, 1]`.
+- **Nhãn Conditional**: Thuộc tính `Smiling` (index 31) được nhóm chọn làm nhãn điều kiện chính:
+  - `0`: Không cười (Non-smiling)
+  - `1`: Đang cười (Smiling)
+- **Cấu hình**: [`configs/datasets/celeba.yaml`](../configs/datasets/celeba.yaml)
+
+### 2.2. Fashion-MNIST
+- **Nguồn**: [Fashion-MNIST](https://github.com/zalandoresearch/fashion-mnist) (Zalando Research).
+- **Đặc điểm ảnh gốc**: 28×28 pixel, 1 kênh đen trắng.
+- **Quy trình tiền xử lý**:
+  1. `transforms.Resize((32, 32))`: Đưa lên 32×32 (lũy thừa của 2: $32 \to 16 \to 8 \to 4$) để các tầng `ConvTranspose2d` giải nén không bị lệch padding.
+  2. `transforms.RandomHorizontalFlip(p=0.5)` (train).
+  3. `transforms.ToTensor()` + `transforms.Normalize(mean=[0.5], std=[0.5])` về `[-1, 1]`.
+- **10 lớp trang phục**:
+  `0: T-shirt/top`, `1: Trouser`, `2: Pullover`, `3: Dress`, `4: Coat`, `5: Sandal`, `6: Shirt`, `7: Sneaker`, `8: Bag`, `9: Ankle boot`.
+- **Cấu hình**: [`configs/datasets/fashion_mnist.yaml`](../configs/datasets/fashion_mnist.yaml)
+
+### 2.3. CIFAR-10
+- **Nguồn**: [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html) (Alex Krizhevsky).
+- **Đặc điểm ảnh gốc**: 32×32 pixel, 3 kênh màu RGB.
+- **Quy trình tiền xử lý**:
+  1. `transforms.RandomHorizontalFlip(p=0.5)` (train).
+  2. `transforms.ToTensor()` + `transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])` về `[-1, 1]`.
+- **10 lớp đối tượng**:
+  `0: airplane`, `1: automobile`, `2: bird`, `3: cat`, `4: deer`, `5: dog`, `6: frog`, `7: horse`, `8: ship`, `9: truck`.
+- **Cấu hình**: [`configs/datasets/cifar10.yaml`](../configs/datasets/cifar10.yaml)
+
+---
+
+## 3. Quản lý Train / Validation / Test Split cố định
+
+Để đảm bảo kết quả so sánh giữa 3 thành viên (**Lâm - DCGAN**, **Quân - VAE**, **Long - DDPM**) là hoàn toàn công bằng (fair comparison), metadata split được sinh cố định với **Seed 42** và lưu tại:
+- `datasets/splits/fashion_mnist_split.json`
+- `datasets/splits/cifar10_split.json`
+- `datasets/splits/celeba_split.json` (dùng mapping `list_eval_partition.txt`)
+
+Khi gọi `build_dataloader(config_path, split="train"|"val"|"test")`, module sẽ tự động nạp chính xác các chỉ số này.
+
+---
+
+## 4. Hướng dẫn nạp dữ liệu trên Google Colab / Kaggle
+
+### Trên Google Colab:
+```python
+from google.colab import drive
+drive.mount('/content/drive')
+
+# Trỏ biến đường dẫn dữ liệu hoặc cập nhật raw_dir trong config
+# Ví dụ CelebA lưu tại Google Drive: /content/drive/MyDrive/BTL_DL_Data/celeba
 ```
 
-## CIFAR-10
-
-- Nguồn: [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html).
-- Nội dung: 60.000 ảnh màu thuộc 10 lớp, gồm 50.000 ảnh train và 10.000 ảnh test.
-- Kích thước gốc: 32×32, ba kênh RGB.
-- Preprocessing khởi điểm: giữ 32×32, chuyển tensor và normalize theo config.
-- Conditional generation sử dụng 10 nhãn lớp có sẵn.
-- Augmentation phải được ghi trong config và không được làm thay đổi ý nghĩa của nhãn.
-
-Mười lớp:
-
-```text
-airplane
-automobile
-bird
-cat
-deer
-dog
-frog
-horse
-ship
-truck
+### Trên Kaggle:
+```python
+# Đính kèm Kaggle Dataset (ví dụ: celeba-dataset)
+# Thư mục dữ liệu sẽ nằm tại: /kaggle/input/celeba-dataset/
 ```
 
-## Cấu trúc lưu trữ đề xuất
+### Sử dụng Dataloader trong Code:
+```python
+from datasets.preprocessing.builder import build_dataloader, denormalize
 
-Cấu trúc bên dưới chỉ dùng trên Drive/Kaggle/runtime và không được commit:
+# Nạp dữ liệu bất kỳ chỉ với 1 dòng lệnh:
+train_loader, train_dataset = build_dataloader("configs/datasets/fashion_mnist.yaml", split="train", batch_size=64)
 
-```text
-datasets/
-  raw/
-    celeba/
-    fashion_mnist/
-    cifar10/
-  processed/
-    celeba/
-    fashion_mnist/
-    cifar10/
-  splits/
-    celeba/
-    fashion_mnist/
-    cifar10/
+for images, labels in train_loader:
+    # images có shape (B, C, H, W) trong khoảng [-1, 1]
+    # labels có shape (B,)
+    break
 ```
-
-## Quy trình chung
-
-1. Mount Google Drive hoặc attach Kaggle Dataset.
-2. Truyền root path qua config hoặc biến môi trường; không hard-code đường dẫn cá nhân.
-3. Chạy pipeline trong `datasets/preprocessing/` với config dataset tương ứng.
-4. Kiểm tra visualization và thống kê split.
-5. Lưu metadata split để cả ba mô hình dùng cùng tập dữ liệu.
-
-Mỗi dataset có config riêng trong `configs/datasets/`. Thay đổi kích thước, normalization, split hoặc augmentation phải được ghi trong config; không sửa ngầm trong notebook.
-
-## Thông tin cần ghi sau khi hoàn thiện pipeline
-
-Với từng dataset, Lâm cần bổ sung:
-
-- Số lượng ảnh thực tế được sử dụng.
-- Số lớp và phân phối nhãn/thuộc tính nếu dùng conditional.
-- Cấu trúc thư mục trên Drive/Kaggle.
-- Kích thước đầu vào cuối cùng.
-- Quy trình crop, resize, augmentation và normalization.
-- Tỷ lệ và số lượng mẫu trong train/validation/test.
-- Random seed dùng để tạo split.
-- Cách mount, attach hoặc tự động tải dataset trong Colab/Kaggle.

@@ -1,0 +1,47 @@
+# Python cache & virtual environment
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Datasets & raw archives (Tuyệt đối không commit theo Mục 5)
+datasets/raw/
+*.tar.gz
+*.zip
+*.gz
+*.ubyte
+*.pkl
+*.npy
+
+# Model Checkpoints & Large weights (Không commit file trọng số)
+outputs/checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Generated samples from experimental runs (ngoại trừ ảnh báo cáo nhỏ trong outputs/data_analysis/)
+outputs/samples/**/images/
+outputs/samples/**/*.png
+
+# Metrics & Logs lớn
+outputs/metrics/**/*.log
+*.log
+
+# Sensitive configs & secrets
+.env
+kaggle.json
+*.token
+credentials.json
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
