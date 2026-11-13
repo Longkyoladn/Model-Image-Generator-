@@ -1,0 +1,25 @@
+# Config thực nghiệm DCGAN Baseline trên CIFAR-10 (3 kênh màu RGB)
+experiment:
+  name: "dcgan_cifar10_baseline"
+  dataset_config: "configs/datasets/cifar10.yaml"
+  conditional: false
+  random_seed: 42
+
+model:
+  type: "dcgan"
+  latent_dim: 100
+  image_size: 32
+  channels: 3
+  hidden_dim: 64
+
+training:
+  epochs: 35
+  batch_size: 64
+  lr_g: 0.0002
+  lr_d: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  sample_interval_epochs: 1
+  checkpoint_interval_epochs: 5
+  num_fixed_samples: 16
+

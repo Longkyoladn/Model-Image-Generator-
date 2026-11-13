@@ -1,0 +1,48 @@
+# Cấu hình dữ liệu CelebA cho bài toán sinh ảnh (DCGAN, VAE, DDPM)
+dataset:
+  name: "celeba"
+  display_name: "CelebFaces Attributes Dataset (CelebA)"
+  raw_dir: "datasets/raw/celeba"               # Hoặc đường dẫn từ Google Drive / Kaggle
+  processed_dir: "datasets/processed/celeba"
+  split_file: "datasets/splits/celeba_split.json"
+
+image:
+  size: 64                                     # 64x64 pixel
+  channels: 3                                  # 3 kênh màu RGB
+  crop_type: "center_crop"                     # Center crop khuôn mặt từ ảnh gốc 178x218
+  crop_size: 140                               # Kích thước crop trước khi resize về 64x64
+  interpolation: "bilinear"
+
+normalization:
+  range: "[-1, 1]"
+  mean: [0.5, 0.5, 0.5]
+  std: [0.5, 0.5, 0.5]
+
+augmentation:
+  train:
+    horizontal_flip: true
+    flip_probability: 0.5
+  val:
+    horizontal_flip: false
+  test:
+    horizontal_flip: false
+
+splits:
+  type: "standard_partition"                   # Phân vùng chuẩn của CelebA
+  train_samples: 162770
+  val_samples: 19867
+  test_samples: 19962
+  random_seed: 42
+
+dataloader:
+  batch_size: 64
+  num_workers: 2
+  pin_memory: true
+  drop_last: true
+
+conditional:
+  enabled: true
+  attribute_type: "single_attribute"           # 'single_attribute' hoặc 'multi_attribute'
+  target_attributes: ["Smiling"]               # Thuộc tính khuôn mặt: "Smiling", "Male", "Eyeglasses", "Young"
+  num_classes: 2                               # 0: Không mỉm cười, 1: Mỉm cười
+

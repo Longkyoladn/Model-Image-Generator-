@@ -1,0 +1,28 @@
+# Config thực nghiệm Conditional DCGAN trên CelebA với thuộc tính Smiling (0: Không cười, 1: Cười)
+experiment:
+  name: "cdcgan_celeba_smiling"
+  dataset_config: "configs/datasets/celeba.yaml"
+  conditional: true
+  num_classes: 2
+  target_attribute: "Smiling"
+  random_seed: 42
+
+model:
+  type: "cdcgan"
+  latent_dim: 100
+  embed_dim: 50
+  image_size: 64
+  channels: 3
+  hidden_dim: 64
+
+training:
+  epochs: 35
+  batch_size: 64
+  lr_g: 0.0002
+  lr_d: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  sample_interval_epochs: 1
+  checkpoint_interval_epochs: 5
+  num_fixed_samples: 16                        # 8 mẫu Smiling, 8 mẫu Non-smiling
+
