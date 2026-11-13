@@ -84,6 +84,7 @@ class FIDCalculator:
 
     def compute_statistics(self, dataloader, dataset_name, split_name, use_cache=True):
         """Tính mean và covariance của features"""
+        can_cache = use_cache and (split_name == "real")
         cache_path = self._get_cache_path(dataloader, dataset_name, split_name)
         
         if use_cache and os.path.exists(cache_path):
@@ -124,45 +125,54 @@ class FIDCalculator:
         Tính FID cho từng class riêng biệt.
         Giả định dataloader trả về tuple (images, labels).
         """
+        from torch.utils.data import Subset
+        
+        real_dataset = real_loader.dataset
+        fake_dataset = fake_loader.dataset
+        
         class_fid_scores = {}
         
         for cls_idx in class_indices:
-            print(f"Calculating FID for class {cls_idx}...")
-            
-            # Lọc dataloader theo nhãn
-            # Lưu ý: Cách này load lại toàn bộ dataset mỗi lần, sẽ chậm nếu dataset lớn.
-            # Cách tối ưu hơn là tạo custom SubsetDataset trước khi vào vòng lặp, nhưng 
-            # để đơn giản và dễ hiểu, ta lọc ngay trong batch.
-            
-            def filter_by_class(loader, target_class):
-                filtered_batches = []
-                for batch in loader:
-                    imgs, labels = batch[0], batch[1]
-                    mask = (labels == target_class)
-                    if mask.any():
-                        filtered_batches.append((imgs[mask], labels[mask]))
-                
-                if not filtered_batches:
-                    raise ValueError(f"No samples found for class {target_class} in loader.")
-                
-                # Gộp tất cả ảnh cùng class thành 1 tensor lớn để tạo loader mới
-                all_imgs = torch.cat([b[0] for b in filtered_batches], dim=0)
-                all_labels = torch.cat([b[1] for b in filtered_batches], dim=0)
-                dataset = torch.utils.data.TensorDataset(all_imgs, all_labels)
-                return torch.utils.data.DataLoader(dataset, batch_size=real_loader.batch_size, shuffle=False)
+            # Lấy danh sách index của class này
+            # Xử lý an toàn: Kiểm tra xem dataset dùng thuộc tính 'targets' hay 'labels'
+            try:
+                real_targets = real_dataset.targets
+                fake_targets = fake_dataset.targets
+            except AttributeError:
+                try:
+                    real_targets = real_dataset.labels
+                    fake_targets = fake_dataset.labels
+                except AttributeError:
+                    raise AttributeError("Dataset không có thuộc tính '.targets' hoặc '.labels'.")
 
-            real_loader_cls = filter_by_class(real_loader, cls_idx)
-            fake_loader_cls = filter_by_class(fake_loader, cls_idx)
+            real_indices = [i for i, label in enumerate(real_targets) if label == cls_idx]
+            fake_indices = [i for i, label in enumerate(fake_targets) if label == cls_idx]
             
-            # Gọi lại hàm tính FID tổng thể cho class này
-            # Sử dụng tên dataset kèm hậu tố class để cache riêng
+            # Bỏ qua nếu không có đủ ảnh để tính FID (cần ít nhất 2 ảnh để tính covariance)
+            if len(real_indices) < 2 or len(fake_indices) < 2:
+                print(f"Warning: Bỏ qua class {cls_idx} vì không đủ số lượng ảnh (Real: {len(real_indices)}, Fake: {len(fake_indices)})")
+                continue
+            
+            # Tạo Subset (chỉ lưu index, không copy ảnh vào RAM)
+            real_subset = Subset(real_dataset, real_indices)
+            fake_subset = Subset(fake_dataset, fake_indices)
+            
+            real_loader_cls = torch.utils.data.DataLoader(real_subset, batch_size=real_loader.batch_size, shuffle=False)
+            fake_loader_cls = torch.utils.data.DataLoader(fake_subset, batch_size=fake_loader.batch_size, shuffle=False)
+            
+            ds_name = f"{real_dataset.__class__.__name__}_class_{cls_idx}"
+            
             fid_score = self.calculate_fid(
                 real_loader_cls, 
                 fake_loader_cls, 
-                dataset_name=f"cifar10_class_{cls_idx}", # Giả định tên dataset
+                dataset_name=ds_name, 
                 use_cache=use_cache
             )
             class_fid_scores[cls_idx] = fid_score
+            print(f" -> FID class {cls_idx}: {fid_score:.4f}")
+            
+        if not class_fid_scores:
+            return {}, 0.0
             
         mean_fid = sum(class_fid_scores.values()) / len(class_fid_scores)
         return class_fid_scores, mean_fid
