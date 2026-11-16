@@ -393,7 +393,8 @@ InceptionV3 được train trên ảnh màu tự nhiên nên feature cho ảnh q
 #### Deliverables
 
 - Source code, config, notebook/script train và sample DDPM.
-- `evaluation/speed.py`, script đo FLOPs/MACs và script hiệu chuẩn phần cứng.
+- `models/interface.py`, `evaluation/speed.py`, `scripts/aggregate_results.py`
+- Script đo FLOPs/MACs và script hiệu chuẩn phần cứng.
 - Bảng config DDPM đã thử và config tốt nhất cho từng dataset.
 - Ba bảng kết quả chính, biểu đồ, ảnh mẫu và báo cáo tổng hợp.
 
@@ -412,10 +413,89 @@ python scripts/sample_<model>.py \
 
 DDPM thêm `--sampler ddpm|ddim --steps <K>`.
 
+### 4.1. Interface chung của mô hình
+
+Code đánh giá (benchmark tốc độ, FID, interpolation, notebook) load mọi mô hình qua một interface duy nhất, định nghĩa trong `models/interface.py`.
+
+Mỗi package `models/vae`, `models/gan`, `models/ddpm` phải cung cấp trong `__init__.py`:
+
+```python
+def load_model(checkpoint: str, device: str) -> GenerativeModel
+```
+
+Lớp trả về kế thừa `GenerativeModel` và cài ba thứ:
+
+| Thành phần | Yêu cầu |
+|---|---|
+| `name`, `image_shape` | `"vae"`/`"dcgan"`/`"ddpm"` và `(C, H, W)` |
+| `sample(n, seed, **kwargs)` | Trả về tensor float `(n, C, H, W)` trong [0, 1], trên device của mô hình. Cùng seed cho cùng ảnh. DDPM nhận thêm `sampler`, `steps` |
+| `sampling_modules()` | Dict các module dùng khi sinh: decoder (VAE), generator (DCGAN), U-Net (DDPM). Dùng để đếm tham số và đo MACs |
+
+DDPM override thêm `forward_passes_per_image(**kwargs)` để trả về số step.
+
+Cách dùng từ notebook hoặc script:
+
+```python
+from models.interface import load_model, check_contract
+
+model = load_model("ddpm", "path/to/ckpt.pt", device="cuda")
+check_contract(model, sampler="ddim", steps=100)   # báo lỗi nếu sai interface
+images = model.sample(64, seed=0, sampler="ddim", steps=100)
+```
+
+`scripts/sample_<model>.py` nên gọi chính `load_model` và `sample` này để ảnh dùng tính FID và ảnh dùng đo tốc độ đi qua cùng một đường code.
+
+`models/dummy.py` là mô hình giả, chỉ để chạy thử pipeline bằng `python scripts/smoke_test_benchmark.py`.
+
+### 4.2. File kết quả
+
+Mọi file kết quả là JSON có trường `kind` và các khóa ghép `dataset`, `model`, `run_name`, `label`. `label` phân biệt các biến thể sampler của cùng một checkpoint, ví dụ `ddim100`; VAE và DCGAN để trống. `scripts/aggregate_results.py` đọc các file này và sinh bảng.
+
+| `kind` | Ai sinh | Nội dung |
+|---|---|---|
+| `run` | Script train của từng mô hình | Metadata bên dưới |
+| `quality` | `evaluation/fid.py`, `evaluation/diversity.py` | Khối `eval` và khối `metrics` |
+| `speed` | `evaluation/speed.py` | Thời gian, throughput, memory theo batch size |
+| `reference` | `evaluation/fid.py` | Số liệu thật-với-thật của dataset (`fid_floor`, `lpips_real`) |
+
+File `quality`:
+
+```json
+{
+  "kind": "quality",
+  "model": "ddpm", "dataset": "cifar10", "run_name": "ddpm_base", "label": "ddim100",
+  "sampler": "ddim", "sampling_steps": 100,
+  "eval": {
+    "eval_config": "configs/eval/fid.yaml", "eval_config_hash": "...",
+    "library": "clean-fid==<version>", "commit": "...",
+    "ref_train": "cifar10_train_32", "ref_test": "cifar10_test_32", "num_gen": 50000
+  },
+  "metrics": {
+    "fid_train_50k": 0.0, "fid_test_10k_mean": 0.0, "fid_test_10k_std": 0.0,
+    "kid_test_mean": 0.0, "kid_test_std": 0.0,
+    "precision": 0.0, "recall": 0.0, "density": 0.0, "coverage": 0.0,
+    "lpips_diversity": 0.0
+  }
+}
+```
+
+Run ở giai đoạn tuning chỉ cần `metrics.kid_val_mean`.
+
+Script tổng hợp từ chối ghi bảng nếu trong cùng một dataset:
+
+- Khối `eval` của các mô hình khác nhau ở bất kỳ trường nào.
+- Tốc độ được đo trên GPU, phiên bản PyTorch, precision hoặc batch size khác nhau.
+- Một dòng DDPM thiếu sampler và số step.
+
+Bảng chính chỉ gồm các run có `stage = "full"`; run `overfit` và `tuning` vào bảng "Các config đã thử".
+
+### 4.3. Metadata của run
+
 Mỗi run phải xuất metadata tối thiểu:
 
 ```json
 {
+  "kind": "run",
   "model": "vae|dcgan|ddpm",
   "dataset": "celeba|fashion_mnist|cifar10",
   "run_name": "example_run",
@@ -429,7 +509,7 @@ Mỗi run phải xuất metadata tối thiểu:
   "checkpoint": "checkpoint_name",
   "train_steps": 100000,
   "params_m": 35.7,
-  "gmacs_per_image": 6.1,
+  "gmacs_per_forward": 6.1,
   "train_flops": 1.2e18,
   "hardware": [{"device": "Tesla P100", "train_hours": 2.0, "k_t4": 1.3}],
   "gpu_hours_t4": 2.6,
@@ -439,6 +519,8 @@ Mỗi run phải xuất metadata tối thiểu:
 ```
 
 `sampler` và `sampling_steps` chỉ áp dụng cho DDPM. Các giá trị số ở trên chỉ là ví dụ.
+
+`gmacs_per_forward` là MACs của một lần forward qua các module sinh ảnh. Script tổng hợp nhân với số forward mỗi ảnh (1 với VAE/DCGAN, số step với DDPM) để ra GMACs và GFLOPs mỗi ảnh.
 
 ## 5. Quản lý Git và artifact
 
