@@ -1,7 +1,4 @@
 # Cài: pip install -r requirements.txt
-# Trên Colab/Kaggle đã có sẵn PyTorch phù hợp với GPU; giữ bản có sẵn nếu
-# phiên bản đó thỏa điều kiện bên dưới, không cài đè.
-
 # Mô hình và dữ liệu
 torch>=2.1
 torchvision>=0.16
@@ -9,14 +6,14 @@ numpy>=1.24
 pyyaml>=6.0
 pillow>=10.1
 
-# Đánh giá chất lượng (mục 2.6). Ghim phiên bản để FID/KID của cả nhóm
+# Đánh giá chất lượng 
 # tính bằng cùng một code.
 clean-fid==0.1.35
 scipy>=1.10
 lpips==0.1.4
 prdc==0.2
 
-# Chi phí tính toán (mục 2.5). Mọi mô hình phải đo MACs bằng cùng công cụ
+# Chi phí tính toán (
 # và cùng phiên bản; mặc định evaluation/flops.py dùng fvcore.
 fvcore==0.1.5.post20221221
 thop==0.1.1.post2209072238
