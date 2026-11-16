@@ -25,8 +25,39 @@ MODEL_MODULES = {
 }
 
 
+# Tên module bắt buộc trong training_modules() và module dùng khi sinh ảnh,
+# để áp dụng công thức chi phí ở mục 2.5 của TASK_ASSIGNMENT.md.
+TRAIN_ROLES = {
+    "vae": ("encoder", "decoder"),
+    "dcgan": ("generator", "discriminator"),
+    "ddpm": ("unet",),
+}
+SAMPLING_ROLE = {"vae": "decoder", "dcgan": "generator", "ddpm": "unet"}
+
+
 class ContractError(RuntimeError):
     """Mô hình không tuân thủ interface chung."""
+
+
+class Trainer(ABC):
+    """Đối tượng train tối thiểu, dùng cho evaluation/calibrate.py.
+
+    Mỗi package cung cấp `build_trainer(config: str, device: str) -> Trainer`,
+    tạo mô hình + optimizer theo đúng config (trọng số ngẫu nhiên là đủ).
+    """
+
+    batch_size: int
+    image_shape: tuple[int, int, int]
+    precision: str = "fp32"   # "fp32" | "fp16", giống lúc train thật
+    num_gpus: int = 1         # số GPU mà train_step dùng
+
+    @abstractmethod
+    def train_step(self, images: torch.Tensor) -> None:
+        """Một iteration train đầy đủ (forward, backward, optimizer step).
+
+        `images` có shape (batch_size, C, H, W), cùng miền giá trị với
+        dataloader thật, nằm trên device. DCGAN gồm cả bước D và bước G.
+        """
 
 
 class GenerativeModel(ABC):
@@ -61,8 +92,29 @@ class GenerativeModel(ABC):
         """
 
     def forward_passes_per_image(self, **kwargs) -> int:
-        """Số lần forward để sinh một ảnh. DDPM override: trả về số step."""
+        """Số lần forward để sinh một ảnh. DDPM override: trả về số step
+        (2 × số step nếu dùng classifier-free guidance)."""
         return 1
+
+    def training_modules(self) -> dict[str, nn.Module]:
+        """Mọi module tham gia train, đặt tên theo vai trò trong TRAIN_ROLES.
+
+        VAE: {"encoder", "decoder"}; DCGAN: {"generator", "discriminator"};
+        DDPM: {"unet"}. Dùng để đếm tham số khi train và tính training FLOPs.
+        Mặc định bằng sampling_modules().
+        """
+        return self.sampling_modules()
+
+    def example_inputs(self) -> dict[str, tuple]:
+        """Input mẫu cho batch = 1 của từng module trong training_modules().
+
+        Ví dụ DCGAN: {"generator": (z,), "discriminator": (img,)} với
+        z có shape (1, latent_dim, 1, 1). DDPM: {"unet": (x, t)}.
+        Tensor phải nằm trên device của mô hình. Dùng để đo MACs.
+        """
+        raise NotImplementedError(
+            f"Mô hình {self.name!r} chưa cài example_inputs(); cần để đo MACs (mục 4.1)."
+        )
 
     # --- Phần dưới đã cài sẵn, không cần override ---
 
@@ -88,7 +140,16 @@ class GenerativeModel(ABC):
         return self
 
     def num_parameters(self) -> int:
+        """Số tham số của các module dùng khi sinh ảnh."""
         return sum(p.numel() for p in self._parameters())
+
+    def num_training_parameters(self) -> int:
+        """Số tham số của mọi module tham gia train (gồm Encoder/Discriminator)."""
+        seen: dict[int, nn.Parameter] = {}
+        for module in self.training_modules().values():
+            for p in module.parameters():
+                seen[id(p)] = p
+        return sum(p.numel() for p in seen.values())
 
     def weight_bytes(self) -> int:
         """Bộ nhớ của tham số và buffer dùng khi sinh ảnh."""
@@ -130,6 +191,48 @@ def load_model(
             f"{module_name}.load_model phải trả về GenerativeModel, nhận được {type(obj).__name__}."
         )
     return obj.eval()
+
+
+def load_trainer(
+    model: str,
+    config: str,
+    device: str | torch.device = "cpu",
+    module: str | None = None,
+) -> Trainer:
+    """Tạo Trainer theo tên mô hình, gọi `build_trainer` của package tương ứng."""
+    module_name = module or MODEL_MODULES.get(model)
+    if module_name is None:
+        raise ValueError(
+            f"Mô hình không hợp lệ: {model!r}. Chọn một trong {sorted(MODEL_MODULES)}."
+        )
+    mod = importlib.import_module(module_name)
+    if not hasattr(mod, "build_trainer"):
+        raise ContractError(
+            f"{module_name} chưa có hàm build_trainer(config, device)."
+        )
+    obj = mod.build_trainer(str(config), str(device))
+    if not isinstance(obj, Trainer):
+        raise ContractError(
+            f"{module_name}.build_trainer phải trả về Trainer, nhận được {type(obj).__name__}."
+        )
+    return obj
+
+
+def check_roles(model: GenerativeModel) -> None:
+    """Kiểm tra tên module đúng TRAIN_ROLES và SAMPLING_ROLE."""
+    expected = TRAIN_ROLES.get(model.name)
+    if expected is None:
+        raise ContractError(f"name phải là một trong {sorted(TRAIN_ROLES)}, nhận {model.name!r}.")
+    train = set(model.training_modules())
+    if train != set(expected):
+        raise ContractError(
+            f"training_modules() của {model.name!r} phải có đúng {list(expected)}, nhận {sorted(train)}."
+        )
+    sampling = set(model.sampling_modules())
+    if sampling != {SAMPLING_ROLE[model.name]}:
+        raise ContractError(
+            f"sampling_modules() của {model.name!r} phải là {{{SAMPLING_ROLE[model.name]!r}}}, nhận {sorted(sampling)}."
+        )
 
 
 @torch.inference_mode()
