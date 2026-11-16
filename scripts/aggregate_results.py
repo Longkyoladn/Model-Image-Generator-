@@ -16,7 +16,7 @@ và nối với metadata run theo (dataset, model, run_name).
 
 Script tự tính (không tin số điền tay):
 - Tổng FLOPs train = train_steps × batch_size × train_flops_per_image.
-- GPU-giờ T4 = Σ_h (giờ train trên h × k_h), với k_h = throughput_h / throughput_T4
+- Thời gian - T4 = Σ_h (giờ train trên h × k_h), với k_h = throughput_h / throughput_T4
   lấy từ các file calibration cùng (model, config).
 
 Đầu ra trong --output-dir:
@@ -66,7 +66,7 @@ COST_COLUMNS = [
     ("gflops_per_image", "GFLOPs/ảnh", 3),
     ("train_flops", "Train FLOPs", "sci"),
     ("train_hours", "Giờ train thực tế", 2),
-    ("gpu_hours_t4", "GPU-giờ T4", 2),
+    ("gpu_hours_t4", "Thời gian - T4 (giờ)", 2),
     ("hardware", "Phần cứng train", None),
     ("train_steps", "Train step", 0),
     ("latency_ms", "Latency (ms, batch 1)", 3),
@@ -193,7 +193,7 @@ def build_calibration_index(records: list[dict]) -> dict[tuple, dict[str, dict]]
 
 
 class Converter:
-    """Tính hệ số k_h và GPU-giờ quy đổi cho các run."""
+    """Tính hệ số k_h và thời gian train quy đổi về phần cứng tham chiếu."""
 
     def __init__(self, calibrations: dict[tuple, dict[str, dict]], reference: str) -> None:
         self.calibrations = calibrations
@@ -468,7 +468,7 @@ def plot_curves(dataset: str, rows: list[dict], converter: Converter, out_dir: P
 
     written = []
     for x_key, x_label, log_x, suffix in (
-        ("gpu_hours_t4", f"GPU-giờ quy đổi {converter.reference}", False, "gpu_hours"),
+        ("gpu_hours_t4", f"Thời gian - {converter.reference} (giờ)", False, "gpu_hours"),
         ("train_flops", "FLOPs train (thang log)", True, "train_flops"),
     ):
         fig, ax = plt.subplots(figsize=(7, 4.2), dpi=150)
@@ -497,7 +497,7 @@ def plot_curves(dataset: str, rows: list[dict], converter: Converter, out_dir: P
             ax.set_yscale("log")
         ax.set_xlabel(x_label)
         ax.set_ylabel("KID validation ×10³" + (" (thang log)" if log_y else ""))
-        ax.set_title(f"{dataset}: KID validation theo {'GPU-giờ' if suffix == 'gpu_hours' else 'FLOPs train'}",
+        ax.set_title(f"{dataset}: KID validation theo {'thời gian - ' + converter.reference if suffix == 'gpu_hours' else 'FLOPs train'}",
                      loc="left", fontsize=11, color=TEXT_PRIMARY)
         ax.grid(True, color=GRID, linewidth=0.8, zorder=0)
         for side in ("top", "right"):
@@ -618,10 +618,10 @@ def dataset_section(dataset: str, rows: list[dict], tuning: list[dict], real_bas
     c = [cost_values(r, converter) for r in rows]
     body = [[names[i], runs[i]] + [fmt(v[key], digits) for key, _, digits in COST_COLUMNS] for i, v in enumerate(c)]
     header = ["Mô hình", "Run"] + [
-        f"GPU-giờ {converter.reference}" if key == "gpu_hours_t4" else title for key, title, _ in COST_COLUMNS
+        f"Thời gian - {converter.reference} (giờ)" if key == "gpu_hours_t4" else title for key, title, _ in COST_COLUMNS
     ]
     parts += ["### Chi phí", markdown_table(header, body)]
-    notes = [f"GPU-giờ quy đổi về {converter.reference} theo hệ số k_h = throughput_h / throughput_{converter.reference} từ file calibration (mục 2.5)."]
+    notes = [f"Thời gian - {converter.reference}: giờ train trên mọi phần cứng được quy đổi về {converter.reference} theo hệ số k_h = throughput_h / throughput_{converter.reference} từ file calibration (mục 2.5)."]
     speed = next((r["speed"] for r in rows if r.get("speed")), None)
     if speed:
         env = speed.get("env") or {}
@@ -669,7 +669,7 @@ def dataset_section(dataset: str, rows: list[dict], tuning: list[dict], real_bas
             ])
         parts += [
             "### Các config đã thử",
-            markdown_table(["Mô hình", "Run", "Giai đoạn", "KID_val ×10³", f"GPU-giờ {converter.reference}", "Config"], body),
+            markdown_table(["Mô hình", "Run", "Giai đoạn", "KID_val ×10³", f"Thời gian - {converter.reference} (giờ)", "Config"], body),
         ]
     return "\n\n".join(parts)
 
@@ -680,7 +680,7 @@ def main() -> int:
     p.add_argument("--figures-dir", default="outputs/figures")
     p.add_argument("--output-dir", default="outputs/metrics/summary")
     p.add_argument("--reference-device", default="T4",
-                   help="Phần cứng tham chiếu cho tốc độ sinh và quy đổi GPU-giờ (mục 2.4, 2.5).")
+                   help="Phần cứng tham chiếu cho tốc độ sinh và quy đổi thời gian train (mục 2.4, 2.5).")
     p.add_argument(
         "--stage",
         choices=["full", "all"],
