@@ -20,8 +20,17 @@ from datasets.preprocessing.fashion_mnist import FASHION_MNIST_CLASSES
 from datasets.preprocessing.cifar10 import CIFAR10_CLASSES
 
 def analyze_and_visualize(dataset_name="fashion_mnist", output_dir="outputs/data_analysis"):
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(PROJECT_ROOT, output_dir)
     os.makedirs(output_dir, exist_ok=True)
-    config_file = f"configs/datasets/{dataset_name}.yaml"
+    
+    config_file = f"configs/datasets_config/{dataset_name}.yaml"
+    if not os.path.isabs(config_file):
+        config_file = os.path.join(PROJECT_ROOT, config_file)
+    if not os.path.exists(config_file):
+        alt_config = os.path.join(PROJECT_ROOT, f"configs/datasets/{dataset_name}.yaml")
+        if os.path.exists(alt_config):
+            config_file = alt_config
     
     print("\n" + "=" * 70)
     print(f"📊 PHÂN TÍCH VÀ TRỰC QUAN HÓA DỮ LIỆU: {dataset_name.upper()}")

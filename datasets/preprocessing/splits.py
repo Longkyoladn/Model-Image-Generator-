@@ -3,12 +3,21 @@ import json
 import numpy as np
 import torch
 
-def create_or_load_split(dataset_name, total_train_size, total_test_size, val_size=10000, seed=42, output_dir="datasets/splits"):
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_SPLITS_DIR = os.path.join(os.path.dirname(CURRENT_DIR), "splits")
+
+def create_or_load_split(dataset_name, total_train_size, total_test_size, val_size=10000, seed=42, output_dir=None):
     """
     Tạo hoặc đọc metadata split train/val/test cố định bằng random seed.
     Giúp đảm bảo cả ba thành viên (Lâm, Quân, Long) và cả ba mô hình (GAN, VAE, DDPM)
     đều sử dụng CHÍNH XÁC cùng một tập ảnh train, val và test.
     """
+    if output_dir is None:
+        output_dir = DEFAULT_SPLITS_DIR
+    elif not os.path.isabs(output_dir) and not os.path.exists(output_dir):
+        # Nếu đường dẫn tương đối không tồn tại ở thư mục làm việc hiện tại, dùng DEFAULT_SPLITS_DIR
+        output_dir = DEFAULT_SPLITS_DIR
+        
     os.makedirs(output_dir, exist_ok=True)
     split_path = os.path.join(output_dir, f"{dataset_name}_split.json")
     

@@ -1,5 +1,5 @@
 # Cấu hình dữ liệu Fashion-MNIST cho bài toán sinh ảnh (DCGAN, VAE, DDPM)
-dataset:
+datasets_config:
   name: "fashion_mnist"
   display_name: "Fashion-MNIST"
   raw_dir: "datasets/raw/fashion_mnist"

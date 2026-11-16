@@ -37,7 +37,7 @@ Dataset không được commit vào repository. Dữ liệu được truy cập 
 - **Nhãn Conditional**: Thuộc tính `Smiling` (index 31) được nhóm chọn làm nhãn điều kiện chính:
   - `0`: Không cười (Non-smiling)
   - `1`: Đang cười (Smiling)
-- **Cấu hình**: [`configs/datasets/celeba.yaml`](../configs/datasets/celeba.yaml)
+- **Cấu hình**: [`configs/datasets_config/celeba.yaml`](../configs/datasets_config/celeba.yaml)
 
 ### 2.2. Fashion-MNIST
 - **Nguồn**: [Fashion-MNIST](https://github.com/zalandoresearch/fashion-mnist) (Zalando Research).
@@ -48,7 +48,7 @@ Dataset không được commit vào repository. Dữ liệu được truy cập 
   3. `transforms.ToTensor()` + `transforms.Normalize(mean=[0.5], std=[0.5])` về `[-1, 1]`.
 - **10 lớp trang phục**:
   `0: T-shirt/top`, `1: Trouser`, `2: Pullover`, `3: Dress`, `4: Coat`, `5: Sandal`, `6: Shirt`, `7: Sneaker`, `8: Bag`, `9: Ankle boot`.
-- **Cấu hình**: [`configs/datasets/fashion_mnist.yaml`](../configs/datasets/fashion_mnist.yaml)
+- **Cấu hình**: [`configs/datasets_config/fashion_mnist.yaml`](../configs/datasets_config/fashion_mnist.yaml)
 
 ### 2.3. CIFAR-10
 - **Nguồn**: [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html) (Alex Krizhevsky).
@@ -58,7 +58,7 @@ Dataset không được commit vào repository. Dữ liệu được truy cập 
   2. `transforms.ToTensor()` + `transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])` về `[-1, 1]`.
 - **10 lớp đối tượng**:
   `0: airplane`, `1: automobile`, `2: bird`, `3: cat`, `4: deer`, `5: dog`, `6: frog`, `7: horse`, `8: ship`, `9: truck`.
-- **Cấu hình**: [`configs/datasets/cifar10.yaml`](../configs/datasets/cifar10.yaml)
+- **Cấu hình**: [`configs/datasets_config/cifar10.yaml`](../configs/datasets_config/cifar10.yaml)
 
 ---
 
@@ -75,19 +75,74 @@ Khi gọi `build_dataloader(config_path, split="train"|"val"|"test")`, module s�
 
 ## 4. Hướng dẫn nạp dữ liệu trên Google Colab / Kaggle
 
-### Trên Google Colab:
+### Thư mục Google Drive chung của nhóm (Được tạo bởi Lâm):
+- **Link thư mục Google Drive:** [BTL_DL_Data (CelebA)](https://drive.google.com/drive/folders/1yXu8NLNHrcflUo7lwAjjSvzFua72vlzx)
+*(Chứa file nén CelebA và 2 file metadata: `list_eval_partition.txt`, `list_attr_celeba.txt`)*
+
+### Khi chạy trên Google Colab (Quân - DDPM, Long - VAE):
 ```python
+# Cách lấy dữ liệu 
+# với minst và cifar thì gọi code như bình thường :
+
+gõ code sau:
+from datasets.preprocessing.builder import build_dataloader
+
+# A. Lấy tập Test của Fashion-MNIST (Đúng đủ 10.000 ảnh)
+test_loader, test_ds = build_dataloader("configs/datasets_config/fashion_mnist.yaml", split="test", batch_size=64)
+
+# B. Lấy tập Test của CIFAR-10 (Đúng đủ 10.000 ảnh)
+test_loader, test_ds = build_dataloader("configs/datasets_config/cifar10.yaml", split="test", batch_size=64)
+
+# C. Lấy tập Test của CelebA (Đúng đủ 19.962 ảnh)
+test_loader, test_ds = build_dataloader("configs/datasets_config/celeba.yaml", split="test", batch_size=64)
+
+Tương tự với mẫu fashion_minst. 
+
+
+
+# với riêng celebA làm theo các bước sau:
+
+Bước 1: Thêm lối tắt vào Google Drive (Chỉ làm 1 lần duy nhất, tốn 5 giây)
+click vào link drive file zip của celebA: https://drive.google.com/drive/folders/1yXu8NLNHrcf1Uo7lwAjjSvzEuaZ2vLzx
+→ Chọn "Thêm lối tắt vào Drive" (Add shortcut to Drive).
+
+Bước 2: mở Notebook Colab lên để Train
+
+Ở ô đầu tiên của sổ tay Colab, chỉ cần copy đúng đoạn code chuẩn bị này (đã được ghi sẵn trong datasets/README.md):
+
+python
+# 1. Kết nối Google Drive vào Colab
 from google.colab import drive
 drive.mount('/content/drive')
 
-# Trỏ biến đường dẫn dữ liệu hoặc cập nhật raw_dir trong config
-# Ví dụ CelebA lưu tại Google Drive: /content/drive/MyDrive/BTL_DL_Data/celeba
-```
+# 2. Giải nén sang ổ SSD tạm thời của Colab để train siêu tốc (mất ~15 giây)
+hãy tạo thêm 1 cell và nhập code sau:
 
-### Trên Kaggle:
+## 1. Tạo thư mục đích trên Colab
+!mkdir -p /content/celeba
+## 2. Giải nén đúng file archive (2).zip từ thư mục Celebs_Zip_Data của bạn
+!unzip -q "/content/drive/MyDrive/Celebs_Zip_Data/archive (2).zip" -d "/content/celeba"
+## 3. Liệt kê kiểm tra các file đã được giải nén ra
+!ls -la /content/celeba
+
+Sau 2 bước trên, nạp dữ liệu vào mô hình thế nào?
+
+--> Chỉ cần đúng 2 dòng code:
+
+python
+from datasets.preprocessing.builder import build_dataloader
+# Nạp dữ liệu CelebA
+train_loader, _ = build_dataloader("configs/datasets_config/celeba.yaml", split="train", batch_size=64)
+# Vòng lặp huấn luyện VAE của Long
+for images, labels in train_loader:
+    # images shape: [64, 3, 64, 64]
+    loss = vae_model(images)
+    ...
+
+### Khi chạy trên Kaggle:
 ```python
-# Đính kèm Kaggle Dataset (ví dụ: celeba-dataset)
-# Thư mục dữ liệu sẽ nằm tại: /kaggle/input/celeba-dataset/
+# Đính kèm trực tiếp Kaggle Dataset (jessicali9530/celeba-dataset)
+# Thư mục dữ liệu tự động nằm tại: /kaggle/input/celeba-dataset/
 ```
 
 ### Sử dụng Dataloader trong Code:
@@ -95,7 +150,7 @@ drive.mount('/content/drive')
 from datasets.preprocessing.builder import build_dataloader, denormalize
 
 # Nạp dữ liệu bất kỳ chỉ với 1 dòng lệnh:
-train_loader, train_dataset = build_dataloader("configs/datasets/fashion_mnist.yaml", split="train", batch_size=64)
+train_loader, train_dataset = build_dataloader("configs/datasets_config/fashion_mnist.yaml", split="train", batch_size=64)
 
 for images, labels in train_loader:
     # images có shape (B, C, H, W) trong khoảng [-1, 1]

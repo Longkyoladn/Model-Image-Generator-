@@ -33,77 +33,173 @@ def get_celeba_transforms(split="train", image_size=64, crop_size=140, norm_rang
     return transforms.Compose(transform_list)
 
 
+def find_celeba_img_dir(root_dir):
+    """
+    Tìm kiếm thư mục ảnh CelebA một cách linh hoạt, hỗ trợ cấu hình giải nén lồng nhau phổ biến
+    từ Kaggle (img_align_celeba/img_align_celeba/*.jpg) và Google Drive.
+    """
+    candidates = [
+        os.path.join(root_dir, "img_align_celeba", "img_align_celeba"),
+        os.path.join(root_dir, "celeba", "img_align_celeba", "img_align_celeba"),
+        os.path.join(root_dir, "img_align_celeba"),
+        os.path.join(root_dir, "celeba", "img_align_celeba"),
+        root_dir
+    ]
+    for d in candidates:
+        if os.path.exists(d) and os.path.isdir(d):
+            try:
+                files = os.listdir(d)
+                if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files[:20]):
+                    return d
+            except OSError:
+                continue
+                
+    # Quét đệ quy nếu không nằm ở các vị trí mặc định
+    if os.path.exists(root_dir):
+        for root, dirs, files in os.walk(root_dir):
+            if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files[:20]):
+                return root
+    return None
+
+
+def find_celeba_meta_file(root_dir, filenames):
+    """
+    Tìm kiếm file metadata (list_eval_partition.txt/.csv hoặc list_attr_celeba.txt/.csv)
+    trong root_dir hoặc các thư mục con. Hỗ trợ cả định dạng gốc .txt và Kaggle .csv.
+    """
+    if isinstance(filenames, str):
+        filenames = [filenames]
+        
+    for filename in filenames:
+        candidates = [
+            os.path.join(root_dir, filename),
+            os.path.join(root_dir, "celeba", filename),
+            os.path.join(root_dir, "img_align_celeba", filename),
+        ]
+        for c in candidates:
+            if os.path.exists(c) and os.path.isfile(c):
+                return c
+                
+        if os.path.exists(root_dir):
+            for root, _, files in os.walk(root_dir):
+                if filename in files:
+                    return os.path.join(root, filename)
+    return None
+
+
 class CelebADataset(Dataset):
     """
-    Dataset linh hoạt cho CelebA: hỗ trợ cả thư mục giải nén từ Drive/Kaggle
-    (img_align_celeba) và file phân vùng chính thức list_eval_partition.txt.
+    Dataset linh hoạt cho CelebA:
+    - Hỗ trợ phát hiện thư mục ảnh lồng nhau (Kaggle/Colab/Drive).
+    - Hỗ trợ phân vùng chuẩn qua list_eval_partition.txt hoặc fallback phân chia tỷ lệ.
+    - Bắt buộc kiểm tra file thuộc tính list_attr_celeba.txt khi chạy Conditional để tránh lỗi âm thầm toàn nhãn 0.
     """
-    def __init__(self, root_dir="datasets/raw/celeba", split="train", transform=None, target_attr="Smiling"):
+    def __init__(self, root_dir="datasets/raw/celeba", split="train", transform=None, target_attr="Smiling", is_conditional=False):
         self.root_dir = root_dir
         self.split = split
         self.transform = transform
         self.target_attr = target_attr
+        self.is_conditional = is_conditional
         
         # Mapping partition chuẩn CelebA: 0=train, 1=val, 2=test
         split_map = {"train": 0, "val": 1, "test": 2}
         target_part = split_map.get(split, 0)
         
-        # Tìm thư mục ảnh
-        possible_img_dirs = [
-            os.path.join(root_dir, "img_align_celeba"),
-            os.path.join(root_dir, "celeba", "img_align_celeba"),
-            root_dir
-        ]
-        self.img_dir = None
-        for d in possible_img_dirs:
-            if os.path.exists(d) and any(f.lower().endswith(('.jpg', '.png')) for f in os.listdir(d)[:5]):
-                self.img_dir = d
-                break
-                
+        # 1. Tìm thư mục ảnh
+        self.img_dir = find_celeba_img_dir(root_dir)
+        if self.img_dir is None:
+            raise FileNotFoundError(
+                f"[CelebADataset] Không tìm thấy thư mục chứa file ảnh (.jpg, .png) trong '{root_dir}'.\n"
+                f"Kiểm tra lại cấu trúc giải nén trên Drive/Kaggle (ví dụ: 'img_align_celeba/img_align_celeba/')."
+            )
+            
         self.samples = []
         self.attr_labels = []
         
-        # Nếu có file phân vùng list_eval_partition.txt
-        partition_file = os.path.join(root_dir, "list_eval_partition.txt")
-        if not os.path.exists(partition_file):
-            partition_file = os.path.join(root_dir, "celeba", "list_eval_partition.txt")
-            
-        attr_file = os.path.join(root_dir, "list_attr_celeba.txt")
-        if not os.path.exists(attr_file):
-            attr_file = os.path.join(root_dir, "celeba", "list_attr_celeba.txt")
-            
-        # Đọc nhãn thuộc tính nếu có
+        # 2. Tìm file phân vùng và file thuộc tính (hỗ trợ cả file .txt gốc và file .csv từ Kaggle)
+        partition_file = find_celeba_meta_file(root_dir, ["list_eval_partition.txt", "list_eval_partition.csv"])
+        attr_file = find_celeba_meta_file(root_dir, ["list_attr_celeba.txt", "list_attr_celeba.csv"])
+        
+        # 3. Xử lý nhãn thuộc tính khi huấn luyện Conditional
         attr_dict = {}
-        target_attr_idx = -1
-        if os.path.exists(attr_file):
-            with open(attr_file, "r") as f:
+        if self.is_conditional:
+            if attr_file is None:
+                raise FileNotFoundError(
+                    f"[CelebADataset] Cấu hình yêu cầu huấn luyện Conditional (theo thuộc tính '{target_attr}'), "
+                    f"nhưng không tìm thấy file 'list_attr_celeba.txt' hoặc 'list_attr_celeba.csv' trong '{root_dir}'.\n"
+                    f"Vui lòng cung cấp file thuộc tính để mô hình có nhãn Smiling (0 và 1) chính xác!"
+                )
+            with open(attr_file, "r", encoding="utf-8") as f:
                 lines = [line.strip() for line in f if line.strip()]
-                if len(lines) >= 2:
-                    header = lines[1].split()
-                    if target_attr in header:
-                        target_attr_idx = header.index(target_attr)
-                    for line in lines[2:]:
-                        parts = line.split()
-                        img_name = parts[0]
-                        if target_attr_idx != -1 and len(parts) > target_attr_idx + 1:
-                            val = int(parts[target_attr_idx + 1])
-                            attr_dict[img_name] = 1 if val == 1 else 0
+                if len(lines) < 2:
+                    raise ValueError(f"[CelebADataset] File '{attr_file}' không đúng định dạng thuộc tính CelebA.")
+                
+                # Hỗ trợ cả file CSV (dòng 0 là header) và file TXT (dòng 1 là header)
+                if target_attr in lines[0].replace(",", " ").split():
+                    header = lines[0].replace(",", " ").split()
+                    data_lines = lines[1:]
+                elif len(lines) >= 3 and target_attr in lines[1].replace(",", " ").split():
+                    header = lines[1].replace(",", " ").split()
+                    data_lines = lines[2:]
+                else:
+                    raise ValueError(
+                        f"[CelebADataset] Thuộc tính '{target_attr}' không tồn tại trong '{attr_file}'."
+                    )
+                    
+                target_attr_idx = header.index(target_attr)
+                for line in data_lines:
+                    parts = line.replace(",", " ").split()
+                    img_name = parts[0]
+                    if len(parts) > target_attr_idx + 1:
+                        val = int(parts[target_attr_idx + 1])
+                        # CelebA quy ước 1 là có thuộc tính, -1 là không có thuộc tính
+                        attr_dict[img_name] = 1 if val == 1 else 0
+                        
+        elif attr_file is not None:
+            # Nếu chạy unconditional nhưng vẫn có file thuộc tính, đọc để tiện logging/đánh giá
+            try:
+                with open(attr_file, "r", encoding="utf-8") as f:
+                    lines = [line.strip() for line in f if line.strip()]
+                    if len(lines) >= 2:
+                        if target_attr in lines[0].replace(",", " ").split():
+                            header = lines[0].replace(",", " ").split()
+                            data_lines = lines[1:]
+                        elif len(lines) >= 3 and target_attr in lines[1].replace(",", " ").split():
+                            header = lines[1].replace(",", " ").split()
+                            data_lines = lines[2:]
+                        else:
+                            header, data_lines = [], []
+                        if header and target_attr in header:
+                            idx = header.index(target_attr)
+                            for line in data_lines:
+                                parts = line.replace(",", " ").split()
+                                if len(parts) > idx + 1:
+                                    attr_dict[parts[0]] = 1 if int(parts[idx + 1]) == 1 else 0
+            except Exception:
+                pass
 
-        if os.path.exists(partition_file) and self.img_dir:
-            with open(partition_file, "r") as f:
+        # 4. Gom danh sách ảnh theo phân vùng split
+        if partition_file and os.path.exists(partition_file):
+            with open(partition_file, "r", encoding="utf-8") as f:
                 for line in f:
-                    parts = line.strip().split()
-                    if len(parts) == 2:
+                    parts = line.replace(",", " ").strip().split()
+                    if len(parts) >= 2 and parts[1].isdigit():
                         img_name, part_idx = parts[0], int(parts[1])
                         if part_idx == target_part:
                             full_path = os.path.join(self.img_dir, img_name)
                             if os.path.exists(full_path):
                                 self.samples.append(full_path)
                                 self.attr_labels.append(attr_dict.get(img_name, 0))
-        elif self.img_dir:
-            # Fallback nếu không có file txt: quét trực tiếp file ảnh và chia theo tỷ lệ
-            all_files = sorted([os.path.join(self.img_dir, f) for f in os.listdir(self.img_dir) if f.lower().endswith(('.jpg', '.png'))])
+        else:
+            # Fallback nếu không có file list_eval_partition.txt
+            all_files = sorted([
+                os.path.join(self.img_dir, f) for f in os.listdir(self.img_dir)
+                if f.lower().endswith(('.jpg', '.jpeg', '.png'))
+            ])
             n_total = len(all_files)
+            if n_total == 0:
+                raise FileNotFoundError(f"[CelebADataset] Thư mục '{self.img_dir}' không chứa file ảnh nào.")
+                
             n_train = int(n_total * 0.8)
             n_val = int(n_total * 0.1)
             
@@ -113,8 +209,18 @@ class CelebADataset(Dataset):
                 self.samples = all_files[n_train:n_train + n_val]
             else:
                 self.samples = all_files[n_train + n_val:]
-            self.attr_labels = [0] * len(self.samples)
+                
+            self.attr_labels = [attr_dict.get(os.path.basename(p), 0) for p in self.samples]
             
+        # Kiểm tra tính hợp lệ của nhãn khi chạy conditional
+        if self.is_conditional:
+            unique_labels = set(self.attr_labels)
+            if len(unique_labels) < 2 and len(self.samples) > 100:
+                raise RuntimeError(
+                    f"[CelebADataset] Huấn luyện Conditional theo '{target_attr}' nhưng toàn bộ nhãn nạp được là {unique_labels}. "
+                    f"Vui lòng kiểm tra lại sự khớp nhau giữa tên file ảnh trong '{self.img_dir}' và file '{attr_file}'."
+                )
+                
     def __len__(self):
         return len(self.samples)
         
@@ -127,7 +233,7 @@ class CelebADataset(Dataset):
         return image, label
 
 
-def load_celeba(root_dir="datasets/raw/celeba", split="train", image_size=64, crop_size=140, norm_range="[-1, 1]", target_attr="Smiling"):
+def load_celeba(root_dir="datasets/raw/celeba", split="train", image_size=64, crop_size=140, norm_range="[-1, 1]", target_attr="Smiling", is_conditional=False):
     transform = get_celeba_transforms(
         split=split,
         image_size=image_size,
@@ -135,5 +241,10 @@ def load_celeba(root_dir="datasets/raw/celeba", split="train", image_size=64, cr
         norm_range=norm_range,
         hflip=(split == "train")
     )
-    return CelebADataset(root_dir=root_dir, split=split, transform=transform, target_attr=target_attr)
-
+    return CelebADataset(
+        root_dir=root_dir,
+        split=split,
+        transform=transform,
+        target_attr=target_attr,
+        is_conditional=is_conditional
+    )

@@ -1,5 +1,5 @@
 # Cấu hình dữ liệu CelebA cho bài toán sinh ảnh (DCGAN, VAE, DDPM)
-dataset:
+datasets_config:
   name: "celeba"
   display_name: "CelebFaces Attributes Dataset (CelebA)"
   raw_dir: "datasets/raw/celeba"               # Hoặc đường dẫn từ Google Drive / Kaggle

@@ -7,7 +7,21 @@ from .fashion_mnist import load_fashion_mnist, FASHION_MNIST_CLASSES
 from .cifar10 import load_cifar10, CIFAR10_CLASSES
 from .celeba import load_celeba, CELEBA_ATTRIBUTES
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 def load_yaml_config(config_path):
+    if not os.path.exists(config_path):
+        candidate = os.path.join(PROJECT_ROOT, config_path)
+        if os.path.exists(candidate):
+            config_path = candidate
+        else:
+            norm_p = config_path.replace("\\", "/")
+            if "configs/datasets/" in norm_p:
+                alt = norm_p.replace("configs/datasets/", "configs/datasets_config/")
+                if os.path.exists(alt):
+                    config_path = alt
+                elif os.path.exists(os.path.join(PROJECT_ROOT, alt)):
+                    config_path = os.path.join(PROJECT_ROOT, alt)
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -29,7 +43,7 @@ def build_dataloader(config_input, split="train", batch_size=None, shuffle=None,
     else:
         cfg = config_input
         
-    ds_cfg = cfg.get("dataset", {})
+    ds_cfg = cfg.get("datasets_config", cfg.get("dataset_config", cfg.get("dataset", {})))
     img_cfg = cfg.get("image", {})
     norm_cfg = cfg.get("normalization", {})
     dl_cfg = cfg.get("dataloader", {})
@@ -37,6 +51,10 @@ def build_dataloader(config_input, split="train", batch_size=None, shuffle=None,
     
     dataset_name = ds_cfg.get("name", "").lower()
     raw_dir = ds_cfg.get("raw_dir", "datasets/raw")
+    if not os.path.exists(raw_dir) and not os.path.isabs(raw_dir):
+        candidate_raw = os.path.join(PROJECT_ROOT, raw_dir)
+        if os.path.exists(candidate_raw) or not os.path.exists(raw_dir):
+            raw_dir = candidate_raw
     image_size = img_cfg.get("size", 32)
     norm_range = norm_cfg.get("range", "[-1, 1]")
     
@@ -57,15 +75,17 @@ def build_dataloader(config_input, split="train", batch_size=None, shuffle=None,
         )
     elif "celeb" in dataset_name:
         crop_size = img_cfg.get("crop_size", 140)
+        is_cond = cond_cfg.get("enabled", False)
         target_attrs = cond_cfg.get("target_attributes", ["Smiling"])
-        target_attr = target_attrs[0] if target_attrs else "Smiling"
+        target_attr = target_attrs[0] if (target_attrs and is_cond) else "Smiling"
         dataset = load_celeba(
             root_dir=raw_dir,
             split=split,
             image_size=image_size,
             crop_size=crop_size,
             norm_range=norm_range,
-            target_attr=target_attr
+            target_attr=target_attr,
+            is_conditional=is_cond
         )
     else:
         raise ValueError(f"Không nhận dạng được dataset: {dataset_name}. Hỗ trợ: 'fashion_mnist', 'cifar10', 'celeba'.")
@@ -80,7 +100,13 @@ def build_dataloader(config_input, split="train", batch_size=None, shuffle=None,
         do_shuffle = shuffle
         
     pin_mem = dl_cfg.get("pin_memory", torch.cuda.is_available())
-    drop_l = dl_cfg.get("drop_last", (split == "train"))
+    
+    # Sửa lỗi [P2]: drop_last CHỈ áp dụng cho tập train để cố định kích thước batch cho BatchNorm/GAN.
+    # Tập validation và test TUYỆT ĐỐI không drop_last để giữ đủ 100% mẫu đánh giá FID/accuracy công bằng.
+    if split == "train":
+        drop_l = dl_cfg.get("drop_last", True)
+    else:
+        drop_l = False
     
     loader = DataLoader(
         dataset,

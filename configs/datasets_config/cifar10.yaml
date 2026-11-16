@@ -1,5 +1,5 @@
 # Cấu hình dữ liệu CIFAR-10 cho bài toán sinh ảnh (DCGAN, VAE, DDPM)
-dataset:
+datasets_config:
   name: "cifar10"
   display_name: "CIFAR-10"
   raw_dir: "datasets/raw/cifar10"
