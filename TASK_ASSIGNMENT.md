@@ -215,7 +215,7 @@ Ví dụ: P100 nhanh hơn T4 1,3 lần với config này thì 2 giờ trên P100
 
 - Nếu train trên nhiều GPU cùng lúc (Kaggle T4×2), hiệu chuẩn cả cụm như một phần cứng h.
 - "Giờ train thực tế" chỉ tính thời gian các training step (log cộng dồn trong training loop), không tính evaluation, lưu checkpoint hay thời gian Colab bị ngắt. Wall-clock tổng được báo riêng.
-- Lưu `k_h` và log hiệu chuẩn vào metadata của run.
+- Đo throughput bằng `evaluation/calibrate.py`; mỗi lần đo ghi một file `kind = "calibration"` (log hiệu chuẩn). Metadata của run ghi giờ train theo từng phần cứng (`hardware`, mục 4.3). `scripts/aggregate_results.py` tự tính `k_h` và GPU-giờ T4 từ hai nguồn này, không dùng số điền tay.
 
 Tốc độ sinh không dùng công thức quy đổi; đo trực tiếp trên T4 như mục 2.4.
 
@@ -393,8 +393,10 @@ InceptionV3 được train trên ảnh màu tự nhiên nên feature cho ảnh q
 #### Deliverables
 
 - Source code, config, notebook/script train và sample DDPM.
-- `models/interface.py`, `evaluation/speed.py`, `scripts/aggregate_results.py`
-- Script đo FLOPs/MACs và script hiệu chuẩn phần cứng.
+- `models/interface.py`, `evaluation/speed.py`, `scripts/aggregate_results.py` (bảng, biểu đồ, ảnh ghép).
+- `evaluation/flops.py` (tham số, MACs/FLOPs) và `evaluation/calibrate.py` (hiệu chuẩn phần cứng).
+- `scripts/render_samples.py` (lưới ảnh mẫu không chọn lọc).
+- Chạy thử toàn bộ bằng `python scripts/smoke_test_benchmark.py`.
 - Bảng config DDPM đã thử và config tốt nhất cho từng dataset.
 - Ba bảng kết quả chính, biểu đồ, ảnh mẫu và báo cáo tổng hợp.
 
@@ -431,7 +433,24 @@ Lớp trả về kế thừa `GenerativeModel` và cài ba thứ:
 | `sample(n, seed, **kwargs)` | Trả về tensor float `(n, C, H, W)` trong [0, 1], trên device của mô hình. Cùng seed cho cùng ảnh. DDPM nhận thêm `sampler`, `steps` |
 | `sampling_modules()` | Dict các module dùng khi sinh: decoder (VAE), generator (DCGAN), U-Net (DDPM). Dùng để đếm tham số và đo MACs |
 
-DDPM override thêm `forward_passes_per_image(**kwargs)` để trả về số step.
+DDPM override thêm `forward_passes_per_image(**kwargs)` để trả về số step (2 × số step nếu dùng CFG).
+
+Để đo tham số và MACs (`evaluation/flops.py`), lớp mô hình cài thêm:
+
+| Thành phần | Yêu cầu |
+|---|---|
+| `training_modules()` | Mọi module tham gia train, đặt tên theo vai trò: VAE `{"encoder", "decoder"}`, DCGAN `{"generator", "discriminator"}`, DDPM `{"unet"}` |
+| `example_inputs()` | Input batch = 1 cho từng module trong `training_modules()`, ví dụ DCGAN `{"generator": (z,), "discriminator": (img,)}`, DDPM `{"unet": (x, t)}` |
+
+Tên trong `sampling_modules()` cũng theo vai trò: `"decoder"` (VAE), `"generator"` (DCGAN), `"unet"` (DDPM).
+
+Để hiệu chuẩn phần cứng (`evaluation/calibrate.py`), mỗi package cung cấp thêm:
+
+```python
+def build_trainer(config: str, device: str) -> Trainer
+```
+
+`Trainer` (trong `models/interface.py`) có `batch_size`, `image_shape`, `precision`, `num_gpus` và `train_step(images)` thực hiện đúng một iteration train như lúc train thật (DCGAN gồm cả bước D và bước G). Trọng số ngẫu nhiên là đủ.
 
 Cách dùng từ notebook hoặc script:
 
@@ -456,7 +475,9 @@ Mọi file kết quả là JSON có trường `kind` và các khóa ghép `datas
 | `run` | Script train của từng mô hình | Metadata bên dưới |
 | `quality` | `evaluation/fid.py`, `evaluation/diversity.py` | Khối `eval` và khối `metrics` |
 | `speed` | `evaluation/speed.py` | Thời gian, throughput, memory theo batch size |
-| `reference` | `evaluation/fid.py` | Số liệu thật-với-thật của dataset (`fid_floor`, `lpips_real`) |
+| `compute` | `evaluation/flops.py` | Tham số khi sinh và khi train, MACs từng module, GMACs/GFLOPs mỗi ảnh, FLOPs train mỗi ảnh, công cụ và phiên bản |
+| `calibration` | `evaluation/calibrate.py` | Throughput train của một config trên một phần cứng |
+| `real_baseline` | `evaluation/fid.py` | Số liệu thật-với-thật của dataset (`fid_floor`, `lpips_real`) |
 
 File `quality`:
 
@@ -481,11 +502,26 @@ File `quality`:
 
 Run ở giai đoạn tuning chỉ cần `metrics.kid_val_mean`.
 
+Ảnh dùng trong báo cáo lưu theo đường dẫn cố định để script tổng hợp ghép thành ảnh so sánh cùng layout:
+
+```text
+outputs/figures/<dataset>/<model>__<run_name>[__<label>]/
+  samples.png            # scripts/render_samples.py: 64 ảnh, seed 42, không chọn lọc
+  interpolation.png      # script interpolation của từng mô hình
+  nearest_neighbor.png   # evaluation/fid.py hoặc diversity.py
+```
+
+Dùng hàm `save_grid` trong `scripts/render_samples.py` để mọi lưới ảnh cùng kiểu (nền trắng, phóng to nearest-neighbor).
+
 Script tổng hợp từ chối ghi bảng nếu trong cùng một dataset:
 
 - Khối `eval` của các mô hình khác nhau ở bất kỳ trường nào.
-- Tốc độ được đo trên GPU, phiên bản PyTorch, precision hoặc batch size khác nhau.
+- Tốc độ được đo trên GPU, phiên bản PyTorch, precision hoặc batch size khác nhau, hoặc không đo trên T4.
+- MACs được đo bằng công cụ hoặc phiên bản khác nhau.
+- Không quy đổi được giờ train về T4 vì thiếu file calibration.
 - Một dòng DDPM thiếu sampler và số step.
+
+Ngoài bảng chất lượng và bảng chi phí, script vẽ hai biểu đồ cho mỗi dataset (KID validation theo GPU-giờ T4 và theo FLOPs train, từ trường `curve` của metadata) và ghép ảnh mẫu, interpolation, nearest-neighbor của các mô hình.
 
 Bảng chính chỉ gồm các run có `stage = "full"`; run `overfit` và `tuning` vào bảng "Các config đã thử".
 
@@ -508,11 +544,16 @@ Mỗi run phải xuất metadata tối thiểu:
   "sampling_steps": 100,
   "checkpoint": "checkpoint_name",
   "train_steps": 100000,
-  "params_m": 35.7,
-  "gmacs_per_forward": 6.1,
-  "train_flops": 1.2e18,
-  "hardware": [{"device": "Tesla P100", "train_hours": 2.0, "k_t4": 1.3}],
-  "gpu_hours_t4": 2.6,
+  "batch_size": 128,
+  "precision": "fp32",
+  "hardware": [
+    {"device": "Tesla T4", "train_hours": 1.5},
+    {"device": "Tesla P100-PCIE-16GB", "train_hours": 2.0}
+  ],
+  "curve": [
+    {"step": 10000, "kid_val_mean": 0.031, "hardware_hours": {"Tesla T4": 0.35}},
+    {"step": 20000, "kid_val_mean": 0.024, "hardware_hours": {"Tesla T4": 0.7}}
+  ],
   "eval_config": "configs/eval/fid.yaml",
   "commit": "git_commit_hash"
 }
@@ -520,7 +561,9 @@ Mỗi run phải xuất metadata tối thiểu:
 
 `sampler` và `sampling_steps` chỉ áp dụng cho DDPM. Các giá trị số ở trên chỉ là ví dụ.
 
-`gmacs_per_forward` là MACs của một lần forward qua các module sinh ảnh. Script tổng hợp nhân với số forward mỗi ảnh (1 với VAE/DCGAN, số step với DDPM) để ra GMACs và GFLOPs mỗi ảnh.
+- `hardware[].device` ghi đúng "device key" mà `evaluation/calibrate.py` in ra (ví dụ `"Tesla T4"`, `"Tesla T4 x2"`). `train_hours` là giờ train thực tế trên phần cứng đó (mục 2.5).
+- `curve` là KID validation tại các checkpoint của lần train đầy đủ (giai đoạn 2). `hardware_hours` là giờ train cộng dồn tới checkpoint đó, theo từng phần cứng.
+- Không cần điền `params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4`: script tổng hợp lấy tham số và MACs từ file `compute`, tính FLOPs train = `train_steps` × `batch_size` × FLOPs train mỗi ảnh, và tính GPU-giờ T4 từ `hardware` cùng các file `calibration`. Nếu vẫn điền tay mà lệch với giá trị tính được, script cảnh báo và dùng giá trị tính được.
 
 ## 5. Quản lý Git và artifact
 
