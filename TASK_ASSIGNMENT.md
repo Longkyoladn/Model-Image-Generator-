@@ -209,13 +209,13 @@ Không quy đổi bằng TFLOPS trên spec của GPU, vì tốc độ thực t�
 
 1. Với mỗi phần cứng h đã dùng để train (P100, T4×2, A100...), chạy 20 step warm-up rồi đo throughput train (ảnh/giây) trong 200 step với đúng config, batch size và precision đó. Làm tương tự trên T4.
 2. Hệ số quy đổi: `k_h = throughput_h / throughput_T4`.
-3. Giờ GPU quy đổi: `GPU-giờ_T4 = Σ_h (giờ train thực tế trên h × k_h)`.
+3. Thời gian quy đổi: `Thời gian - T4 = Σ_h (giờ train thực tế trên h × k_h)`. Trong bảng và biểu đồ, chỉ số này có nhãn **Thời gian - T4**.
 
 Ví dụ: P100 nhanh hơn T4 1,3 lần với config này thì 2 giờ trên P100 tính là 2,6 giờ T4.
 
 - Nếu train trên nhiều GPU cùng lúc (Kaggle T4×2), hiệu chuẩn cả cụm như một phần cứng h.
 - "Giờ train thực tế" chỉ tính thời gian các training step (log cộng dồn trong training loop), không tính evaluation, lưu checkpoint hay thời gian Colab bị ngắt. Wall-clock tổng được báo riêng.
-- Đo throughput bằng `evaluation/calibrate.py`; mỗi lần đo ghi một file `kind = "calibration"` (log hiệu chuẩn). Metadata của run ghi giờ train theo từng phần cứng (`hardware`, mục 4.3). `scripts/aggregate_results.py` tự tính `k_h` và GPU-giờ T4 từ hai nguồn này, không dùng số điền tay.
+- Đo throughput bằng `evaluation/calibrate.py`; mỗi lần đo ghi một file `kind = "calibration"` (log hiệu chuẩn). Metadata của run ghi giờ train theo từng phần cứng (`hardware`, mục 4.3). `scripts/aggregate_results.py` tự tính `k_h` và Thời gian - T4 từ hai nguồn này, không dùng số điền tay.
 
 Tốc độ sinh không dùng công thức quy đổi; đo trực tiếp trên T4 như mục 2.4.
 
@@ -521,7 +521,7 @@ Script tổng hợp từ chối ghi bảng nếu trong cùng một dataset:
 - Không quy đổi được giờ train về T4 vì thiếu file calibration.
 - Một dòng DDPM thiếu sampler và số step.
 
-Ngoài bảng chất lượng và bảng chi phí, script vẽ hai biểu đồ cho mỗi dataset (KID validation theo GPU-giờ T4 và theo FLOPs train, từ trường `curve` của metadata) và ghép ảnh mẫu, interpolation, nearest-neighbor của các mô hình.
+Ngoài bảng chất lượng và bảng chi phí, script vẽ hai biểu đồ cho mỗi dataset (KID validation theo Thời gian - T4 và theo FLOPs train, từ trường `curve` của metadata) và ghép ảnh mẫu, interpolation, nearest-neighbor của các mô hình.
 
 Bảng chính chỉ gồm các run có `stage = "full"`; run `overfit` và `tuning` vào bảng "Các config đã thử".
 
@@ -563,7 +563,7 @@ Mỗi run phải xuất metadata tối thiểu:
 
 - `hardware[].device` ghi đúng "device key" mà `evaluation/calibrate.py` in ra (ví dụ `"Tesla T4"`, `"Tesla T4 x2"`). `train_hours` là giờ train thực tế trên phần cứng đó (mục 2.5).
 - `curve` là KID validation tại các checkpoint của lần train đầy đủ (giai đoạn 2). `hardware_hours` là giờ train cộng dồn tới checkpoint đó, theo từng phần cứng.
-- Không cần điền `params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4`: script tổng hợp lấy tham số và MACs từ file `compute`, tính FLOPs train = `train_steps` × `batch_size` × FLOPs train mỗi ảnh, và tính GPU-giờ T4 từ `hardware` cùng các file `calibration`. Nếu vẫn điền tay mà lệch với giá trị tính được, script cảnh báo và dùng giá trị tính được.
+- Không cần điền `params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4`: script tổng hợp lấy tham số và MACs từ file `compute`, tính FLOPs train = `train_steps` × `batch_size` × FLOPs train mỗi ảnh, và tính Thời gian - T4 từ `hardware` cùng các file `calibration`. Nếu vẫn điền tay mà lệch với giá trị tính được, script cảnh báo và dùng giá trị tính được.
 
 ## 5. Quản lý Git và artifact
 

@@ -10,7 +10,7 @@ ra JSON `kind = "calibration"`. scripts/aggregate_results.py ghép các file
 này theo (model, dataset, config) và tính:
 
     k_h        = throughput_h / throughput_T4
-    GPU-giờ_T4 = Σ_h (giờ train thực tế trên h × k_h)
+    Thời gian - T4 = Σ_h (giờ train thực tế trên h × k_h)
 
 Batch dùng để đo là dữ liệu ngẫu nhiên đúng shape, nên thời gian đọc dữ liệu
 không được tính; hệ số k_h chỉ phản ánh tốc độ tính toán.
