@@ -99,9 +99,7 @@ TEXT_SECONDARY = "#52514e"
 GRID = "#e4e3df"
 
 
-# --------------------------------------------------------------------------
 # Đọc dữ liệu
-# --------------------------------------------------------------------------
 
 def load_records(inputs: list[Path]) -> tuple[dict[str, list[dict]], list[str]]:
     records: dict[str, list[dict]] = {k: [] for k in KINDS}
@@ -197,9 +195,7 @@ def row_name(row: dict) -> str:
     return f"{name} ({detail})" if detail else name
 
 
-# --------------------------------------------------------------------------
 # Quy đổi giờ GPU về phần cứng tham chiếu
-# --------------------------------------------------------------------------
 
 def is_reference_device(device: str, reference: str) -> bool:
     """T4 đơn là tham chiếu; "Tesla T4 x2" (nhiều GPU) thì không."""
@@ -276,9 +272,7 @@ def hardware_hours(run: dict) -> dict[str, float]:
     return hours
 
 
-# --------------------------------------------------------------------------
 # Kiểm tra công bằng
-# --------------------------------------------------------------------------
 
 def check_comparison_flags(dataset: str, rows: list[dict], issues: list[tuple[str, str]]) -> None:
     """Trường `comparison` chỉ nhận "sampler" và chỉ dùng cho DDPM."""
@@ -293,6 +287,58 @@ def check_comparison_flags(dataset: str, rows: list[dict], issues: list[tuple[st
             issues.append(("error", f"[{dataset}] {who}: comparison = {COMPARISON_SAMPLER!r} chỉ dùng cho DDPM."))
 
 
+def check_row_files(row: dict, add) -> None:
+    """Mỗi dòng cần đủ file quality/speed/compute; dòng DDPM phải ghi sampler và số step."""
+    who = f"{row_name(row)} / {row['run_name']}"
+    for kind in ("quality", "speed", "compute"):
+        if row.get(kind) is None:
+            add("warning", f"{who}: thiếu file {kind}.")
+    if row["model"] == "ddpm" and not sampler_text(row):
+        add("error", f"{who}: DDPM phải ghi sampler và số step.")
+
+
+def one_row_per_run(rows: list[dict]) -> list[dict]:
+    """Một dòng đại diện cho mỗi (model, run_name), ưu tiên dòng có file compute."""
+    chosen: dict[tuple, dict] = {}
+    for row in rows:
+        key = (row["model"], row["run_name"])
+        if key not in chosen or (row.get("compute") and not chosen[key].get("compute")):
+            chosen[key] = row
+    return list(chosen.values())
+
+
+def warn_if_manual_differs(add, who: str, key: str, manual, computed, rel_tol: float, spec: str,
+                           source: str = "giá trị tính được") -> None:
+    """Cảnh báo khi số điền tay trong metadata lệch giá trị script tự tính."""
+    if manual is None or computed is None:
+        return
+    if abs(manual - computed) > rel_tol * max(computed, 1e-9):
+        add("warning", f"{who}: {key} điền tay ({manual:{spec}}) khác {source} ({computed:{spec}}); "
+                       "bảng dùng giá trị tính được.")
+
+
+def check_run_metadata(row: dict, converter: Converter, add) -> None:
+    """Metadata của run: đủ trường, quy đổi được giờ train, số điền tay khớp số tính được."""
+    who = f"{MODEL_DISPLAY.get(row['model'], row['model'])} / {row['run_name']}"
+    run = row.get("run")
+    if run is None:
+        add("warning", f"{who}: thiếu metadata của run.")
+        return
+    missing = [k for k in RUN_REQUIRED if run.get(k) is None]
+    if missing:
+        add("warning", f"{who}: metadata thiếu {', '.join(missing)}.")
+    if run.get("hardware"):
+        value, notes = converter.convert(run, hardware_hours(run))
+        for note in notes:
+            add("error" if value is None else "warning", f"{who}: {note}")
+        warn_if_manual_differs(add, who, "gpu_hours_t4", run.get("gpu_hours_t4"), value, 0.02, ".3f")
+    compute = row.get("compute")
+    if compute and run.get("train_steps") and run.get("batch_size"):
+        computed = run["train_steps"] * run["batch_size"] * compute["train_flops_per_image"]
+        warn_if_manual_differs(add, who, "train_flops", run.get("train_flops"), computed, 0.05, ".2e",
+                               source="giá trị tính từ flops.py")
+
+
 def check_fairness(dataset: str, rows: list[dict], secondary: list[dict], converter: Converter,
                    issues: list[tuple[str, str]]) -> None:
     """`rows`: dòng bảng chính; `secondary`: dòng phụ so sánh sampler của DDPM."""
@@ -304,32 +350,12 @@ def check_fairness(dataset: str, rows: list[dict], secondary: list[dict], conver
         if model not in present:
             add("warning", f"Chưa có kết quả cho {MODEL_DISPLAY[model]}.")
 
-    for row in rows + secondary:
-        who = f"{row_name(row)} / {row['run_name']}"
-        for kind in ("quality", "speed", "compute"):
-            if row.get(kind) is None:
-                add("warning", f"{who}: thiếu file {kind}.")
-        run = row.get("run")
-        if run is None:
-            add("warning", f"{who}: thiếu metadata của run.")
-        else:
-            missing = [k for k in RUN_REQUIRED if run.get(k) is None]
-            if missing:
-                add("warning", f"{who}: metadata thiếu {', '.join(missing)}.")
-            if run.get("hardware"):
-                value, notes = converter.convert(run, hardware_hours(run))
-                for n in notes:
-                    add("error" if value is None else "warning", f"{who}: {n}")
-                manual = run.get("gpu_hours_t4")
-                if value is not None and manual is not None and abs(manual - value) > 0.02 * max(value, 1e-9):
-                    add("warning", f"{who}: gpu_hours_t4 điền tay ({manual:.3f}) khác giá trị tính được ({value:.3f}); bảng dùng giá trị tính được.")
-            compute = row.get("compute")
-            if compute and run.get("train_flops") is not None and run.get("train_steps") and run.get("batch_size"):
-                computed = run["train_steps"] * run["batch_size"] * compute["train_flops_per_image"]
-                if abs(run["train_flops"] - computed) > 0.05 * computed:
-                    add("warning", f"{who}: train_flops điền tay ({run['train_flops']:.2e}) khác giá trị tính từ flops.py ({computed:.2e}); bảng dùng giá trị tính được.")
-        if row["model"] == "ddpm" and not sampler_text(row):
-            add("error", f"{who}: DDPM phải ghi sampler và số step.")
+    all_rows = rows + secondary
+    for row in all_rows:
+        check_row_files(row, add)
+    # Các biến thể sampler (ddim100, ddpm500) dùng chung một run: chỉ kiểm tra metadata một lần.
+    for row in one_row_per_run(all_rows):
+        check_run_metadata(row, converter, add)
 
     # Cùng cấu hình đánh giá chất lượng.
     quality_rows = [r for r in rows if r.get("quality")]
@@ -405,9 +431,7 @@ def check_fairness(dataset: str, rows: list[dict], secondary: list[dict], conver
         add("error", f"MACs được đo bằng công cụ khác nhau: {detail}")
 
 
-# --------------------------------------------------------------------------
 # Giá trị cho bảng
-# --------------------------------------------------------------------------
 
 def quality_values(row: dict) -> dict:
     m = (row.get("quality") or {}).get("metrics") or {}
@@ -499,9 +523,7 @@ def write_csv(path: Path, header: list[str], body: list[list]) -> None:
         writer.writerows(body)
 
 
-# --------------------------------------------------------------------------
 # Biểu đồ
-# --------------------------------------------------------------------------
 
 def curve_points(row: dict, converter: Converter) -> list[dict]:
     run = row.get("run") or {}
@@ -597,9 +619,7 @@ def plot_curves(dataset: str, rows: list[dict], converter: Converter, out_dir: P
     return written
 
 
-# --------------------------------------------------------------------------
 # Ghép ảnh mẫu, interpolation, nearest-neighbor
-# --------------------------------------------------------------------------
 
 def find_figure(figures_dir: Path, row: dict, name: str) -> Path | None:
     base = figures_dir / row["dataset"]
@@ -660,9 +680,7 @@ def compose_figures(dataset: str, rows: list[dict], figures_dir: Path, out_dir: 
     return written
 
 
-# --------------------------------------------------------------------------
 # Báo cáo
-# --------------------------------------------------------------------------
 
 def sampler_section(dataset: str, rows: list[dict], secondary: list[dict], converter: Converter,
                     out_dir: Path) -> list[str]:
