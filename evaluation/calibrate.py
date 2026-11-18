@@ -97,7 +97,7 @@ def calibrate(model: str, config: str, device: str | None = None, warmup: int = 
         "precision": getattr(trainer, "precision", "fp32"),
         "warmup_steps": warmup,
         "measured_steps": steps,
-        "elapsed_s": elapsed,
+        "elapsed_s": elapsed,  # là tổng thời gian thực để chạy steps bước train đo được(số bước step train được tính mặc định là 200, còn không thì hoàn toàn có thể được cập nhập )
         "step_time_ms": elapsed / steps * 1000,
         "throughput_img_s": steps * trainer.batch_size / elapsed,
         "env": {
