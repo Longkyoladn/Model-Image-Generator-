@@ -270,10 +270,11 @@ Mỗi mô hình sinh **một bộ 50.000 ảnh** với seed cố định (cùng 
 
 #### Sampler của DDPM
 
-Sinh 50k ảnh bằng DDPM 1000 step rất tốn. Ước lượng sơ bộ: U-Net cỡ 35M tham số trên CIFAR-10 cần khoảng chục giờ T4; CelebA 64×64 gấp khoảng 4 lần. Long đo thời gian sinh 100 ảnh bằng `speed.py` rồi ngoại suy trước khi chốt. Đề xuất:
+Sinh 50k ảnh bằng DDPM 1000 step rất tốn. Ước lượng sơ bộ: U-Net cỡ 35M tham số trên CIFAR-10 cần khoảng chục giờ T4; CelebA 64×64 gấp khoảng 4 lần. Tốc độ sinh chỉ phụ thuộc kiến trúc và số step, không phụ thuộc trọng số, nên Long đo thời gian sinh 100 ảnh bằng `speed.py` ngay khi có U-Net (chưa cần train) rồi ngoại suy trước khi chốt. Đã chốt:
 
-- Bảng chính: DDIM 200 step, η = 0, dùng cho FID-50k.
-- Bổ sung một dòng DDPM 500 step với FID-10k để thể hiện đánh đổi giữa chất lượng và tốc độ.
+- **Bảng chính: DDIM 100 step, η = 0**, dùng cho bộ 50k ảnh (FID_train-50k, FID_test-10k mean ± std, KID, PRDC, LPIPS) và cho KID khi tuning. Trước giai đoạn 1, đo nhanh KID-5k validation của DDIM 100 so với DDIM 200 ở một checkpoint; nếu 100 kém rõ (chênh lớn hơn std của KID) thì xem lại.
+- **Dòng phụ: DDPM 500 step** (respace lịch nhiễu từ T = 1000 theo Improved DDPM), sinh **10k ảnh** với 10k seed đầu của danh sách seed chung. Dòng phụ **không** vào bảng chính: file `quality` ghi `"comparison": "sampler"` và chỉ so với 10k ảnh đầu của bộ DDIM 100 trong bảng "Đánh đổi sampler của DDPM" (FID_train-10k, KID_test, GFLOPs/ảnh, latency, throughput). Không so FID-10k với FID-50k.
+- Dòng DDPM chính phải ghi thêm `metrics.fid_train_10k` (FID trên 10k ảnh đầu) để có số so với dòng phụ.
 - Ghi rõ sampler và số step ở mọi bảng có DDPM.
 
 #### Kiểm tra học thuộc
@@ -494,8 +495,22 @@ File `quality`:
     "fid_train_50k": 0.0, "fid_test_10k_mean": 0.0, "fid_test_10k_std": 0.0,
     "kid_test_mean": 0.0, "kid_test_std": 0.0,
     "precision": 0.0, "recall": 0.0, "density": 0.0, "coverage": 0.0,
-    "lpips_diversity": 0.0
+    "lpips_diversity": 0.0,
+    "fid_train_10k": 0.0
   }
+}
+```
+
+`fid_train_10k` chỉ bắt buộc với dòng DDPM chính (dùng cho bảng so sánh sampler). Dòng phụ so sánh sampler (mục 2.6) có dạng:
+
+```json
+{
+  "kind": "quality",
+  "model": "ddpm", "dataset": "cifar10", "run_name": "ddpm_base", "label": "ddpm500",
+  "sampler": "ddpm", "sampling_steps": 500,
+  "comparison": "sampler",
+  "eval": { "...": "giống hệt dòng chính, trừ", "num_gen": 10000 },
+  "metrics": {"fid_train_10k": 0.0, "kid_test_mean": 0.0, "kid_test_std": 0.0}
 }
 ```
 
@@ -514,13 +529,17 @@ Dùng hàm `save_grid` trong `scripts/render_samples.py` để mọi lưới ả
 
 Script tổng hợp từ chối ghi bảng nếu trong cùng một dataset:
 
-- Khối `eval` của các mô hình khác nhau ở bất kỳ trường nào.
-- Tốc độ được đo trên GPU, phiên bản PyTorch, precision hoặc batch size khác nhau, hoặc không đo trên T4.
+- Khối `eval` của các dòng chính khác nhau ở bất kỳ trường nào.
+- Dòng phụ so sánh sampler có `eval.num_gen` khác 10.000, có trường `eval` khác (ngoài `num_gen`) so với bảng chính, hoặc thiếu `fid_train_10k`/`kid_test_*`.
+- `comparison` khác `"sampler"`, hoặc đặt cho VAE/DCGAN.
+- Tốc độ được đo trên GPU, phiên bản PyTorch, precision hoặc batch size khác nhau (kể cả dòng phụ), hoặc không đo trên T4.
 - MACs được đo bằng công cụ hoặc phiên bản khác nhau.
-- Không quy đổi được giờ train về T4 vì thiếu file calibration.
+- Không quy đổi được giờ train về T4 vì thiếu file calibration, file calibration thiếu `dataset`, hoặc trùng file calibration/metadata run.
 - Một dòng DDPM thiếu sampler và số step.
 
-Ngoài bảng chất lượng và bảng chi phí, script vẽ hai biểu đồ cho mỗi dataset (KID validation theo Thời gian - T4 và theo FLOPs train, từ trường `curve` của metadata) và ghép ảnh mẫu, interpolation, nearest-neighbor của các mô hình.
+Quên ghi `"comparison": "sampler"` ở dòng DDPM 500 thì dòng này rơi vào bảng chính và bị từ chối vì khác `num_gen`.
+
+Ngoài bảng chất lượng và bảng chi phí (chỉ gồm dòng chính), script ghi bảng "Đánh đổi sampler của DDPM" nếu có dòng phụ, vẽ hai biểu đồ cho mỗi dataset (KID validation theo Thời gian - T4 và theo FLOPs train, từ trường `curve` của metadata) và ghép ảnh mẫu, interpolation, nearest-neighbor của các mô hình.
 
 Bảng chính chỉ gồm các run có `stage = "full"`; run `overfit` và `tuning` vào bảng "Các config đã thử".
 
@@ -590,14 +609,14 @@ python scripts/smoke_test_benchmark.py --spec configs/eval/speed_<tên>.yaml
 
 Các bước smoke test kiểm tra:
 
-1. **Spec**: khóa bắt buộc; DDPM có `sampler`, `steps` và `label`.
+1. **Spec**: khóa bắt buộc; DDPM có `sampler`, `steps` và `label`; `comparison: sampler` chỉ cho DDPM và phải có dòng DDPM chính cùng `run_name`.
 2. **Interface**: `load_model` trả về `GenerativeModel`, tên module đúng vai trò, `image_shape` đúng dataset (mục 2.1), `sample()` trả về tensor float `(n, C, H, W)` trong [0, 1], cùng device (kể cả chỉ số GPU), cùng seed cho cùng ảnh, `forward_passes_per_image` và `example_inputs()` đúng.
 3. **Mô hình sai**: chạy kiểm tra của bước 2 và kiểm tra `Trainer` trên từng biến thể lỗi trong `models/dummy.py` (sai thứ tự chiều, quên đổi [-1, 1] về [0, 1], uint8, NaN, bỏ qua seed, bỏ qua `n`, sai tên module, thiếu discriminator, sai `forward_passes_per_image`, `example_inputs()` sai batch, Trainer sai shape/precision/batch...). Mỗi lỗi phải bị bắt đúng chỗ; nếu không, bộ kiểm tra bị lỏng và lỗi tương tự của mô hình thật cũng sẽ lọt qua.
 4. **Tốc độ**: `evaluation/speed.py` ghi file `speed` đúng khóa ghép và đủ trường.
 5. **MACs/FLOPs**: file `compute` đúng công thức mục 2.5; fvcore và thop cho cùng MACs.
 6. **Hiệu chuẩn**: `build_trainer` trả về `Trainer` đúng `batch_size`, `image_shape`, `precision`, `num_gpus` và `train_step` chạy được; file `calibration` đủ trường.
 7. **Ảnh mẫu**: `scripts/render_samples.py` ghi đúng đường dẫn mục 4.2.
-8. **FID/diversity**: ảnh lưu PNG uint8 = `round(clamp(x) × 255)` đúng độ phân giải; `configs/eval/fid.yaml` đúng mục 2.6; file `quality` và `real_baseline` đủ khóa, đúng tên cache `<dataset>_<split>_<resolution>`, metric trong miền hợp lệ.
+8. **FID/diversity**: ảnh lưu PNG uint8 = `round(clamp(x) × 255)` đúng độ phân giải; `configs/eval/fid.yaml` đúng mục 2.6; file `quality` và `real_baseline` đủ khóa, đúng tên cache `<dataset>_<split>_<resolution>`, metric trong miền hợp lệ; dòng phụ so sánh sampler có `comparison`, `num_gen = 10000` và đủ `fid_train_10k`, `kid_test_*`.
 9. **Metadata run**: file `run` đủ trường mục 4.3, run `full` có `curve` tăng dần.
 10. **Tổng hợp** và 11. **Bắt lỗi** (chỉ với mô hình giả): `aggregate_results.py` ra bảng đúng và từ chối dữ liệu không công bằng.
 

@@ -358,19 +358,20 @@ def _pair_distance(images: torch.Tensor, pairs: int, gen: torch.Generator) -> fl
 
 def dummy_quality_record(model: str, dataset: str, run_name: str, label: str, sample_kwargs: dict,
                          fake: torch.Tensor, real_train: torch.Tensor, real_test: torch.Tensor,
-                         eval_block: dict, splits: int = 5, seed: int = 0) -> dict:
+                         eval_block: dict, splits: int = 5, seed: int = 0,
+                         comparison: str | None = None) -> dict:
     """File `kind = "quality"` đúng schema mục 4.2.
 
-    `fake`, `real_*`: tensor (N, C, H, W) trong [0, 1]. Quy mô nhỏ hơn bộ 50k thật,
-    nhưng chia phần giống mục 2.6 (FID_test chia `splits` phần, KID có std).
+    `fake`, `real_*`: tensor (N, C, H, W) trong [0, 1]. Quy mô nhỏ hơn bộ thật nhưng
+    chia phần giống mục 2.6:
+    - Dòng chính: `fake` đóng vai bộ 50k; phần đầu (1/`splits`) đóng vai 10k ảnh đầu,
+      dùng cho KID_test, PRDC và `fid_train_10k` (để so sánh sampler).
+    - Dòng phụ (`comparison = "sampler"`, chỉ DDPM): `fake` đóng vai bộ 10k riêng;
+      chỉ có các metric so được với 10k ảnh đầu của dòng chính.
     """
     gen = torch.Generator().manual_seed(seed)
     ff, ftr, fte = _features(fake.cpu()), _features(real_train.cpu()), _features(real_test.cpu())
-    chunks = ff.chunk(splits)
-    fid_test = torch.tensor([_frechet(c, fte) for c in chunks])
-    subset = max(2, min(len(ff), len(fte)) // 2)
-    kid_mean, kid_std = _kid(ff, fte, subset, 10, gen)
-    return {
+    record = {
         "kind": "quality",
         "model": model,
         "dataset": dataset,
@@ -381,16 +382,30 @@ def dummy_quality_record(model: str, dataset: str, run_name: str, label: str, sa
         "eval": dict(eval_block),
         "num_real_train": len(real_train),
         "num_real_test": len(real_test),
-        "metrics": {
-            "fid_train_50k": _frechet(ff, ftr),
-            "fid_test_10k_mean": float(fid_test.mean()),
-            "fid_test_10k_std": float(fid_test.std()),
-            "kid_test_mean": kid_mean,
-            "kid_test_std": kid_std,
-            **_prdc(ftr, ff),
-            "lpips_diversity": _pair_distance(fake.cpu().float(), 200, gen),
-        },
     }
+    if comparison is not None:
+        subset = max(2, min(len(ff), len(fte)) // 2)
+        kid_mean, kid_std = _kid(ff, fte, subset, 10, gen)
+        record["comparison"] = comparison
+        record["metrics"] = {"fid_train_10k": _frechet(ff, ftr), "kid_test_mean": kid_mean, "kid_test_std": kid_std}
+        return record
+
+    chunks = ff.chunk(splits)
+    first = chunks[0]                         # "10k ảnh đầu" của bộ chính
+    fid_test = torch.tensor([_frechet(c, fte) for c in chunks])
+    subset = max(2, min(len(first), len(fte)) // 2)
+    kid_mean, kid_std = _kid(first, fte, subset, 10, gen)
+    record["metrics"] = {
+        "fid_train_50k": _frechet(ff, ftr),
+        "fid_train_10k": _frechet(first, ftr),
+        "fid_test_10k_mean": float(fid_test.mean()),
+        "fid_test_10k_std": float(fid_test.std()),
+        "kid_test_mean": kid_mean,
+        "kid_test_std": kid_std,
+        **_prdc(ftr, first),
+        "lpips_diversity": _pair_distance(fake.cpu().float(), 200, gen),
+    }
+    return record
 
 
 def dummy_real_baseline(dataset: str, real_train: torch.Tensor, real_test: torch.Tensor, seed: int = 0) -> dict:

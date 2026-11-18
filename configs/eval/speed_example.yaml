@@ -12,7 +12,7 @@
 # phiên để nhiễu phần cứng chia đều cho các mô hình):
 #     python evaluation/speed.py --spec configs/eval/speed_<tên>.yaml
 #
-# speed.py bỏ qua các khóa nó không dùng (smoke, trainer_config, quality, run_metadata).
+# speed.py bỏ qua các khóa nó không dùng (smoke, trainer_config, quality, run_metadata, comparison).
 
 dataset: cifar10         # cifar10 | fashion_mnist | celeba
 precision: fp32          # fp32 | fp16, giống nhau cho mọi mô hình
@@ -37,6 +37,8 @@ smoke:
 #   sample_kwargs   tham số truyền vào model.sample(); DDPM bắt buộc có sampler và steps
 #   trainer_config  config truyền vào build_trainer() để kiểm tra calibrate.py
 #                   (mô hình giả: "<tên>:<batch>:<dataset>"; mô hình thật: configs/<model>/<dataset>/<exp>.yaml)
+#   comparison      chỉ DDPM: "sampler" = dòng phụ so sánh sampler (10k ảnh, bảng riêng, mục 2.6);
+#                   bỏ trống = dòng chính (50k ảnh, so với VAE/DCGAN)
 #   quality         (tuỳ chọn) file kind = "quality" do evaluation/fid.py ghi ra, để kiểm tra schema
 #   run_metadata    (tuỳ chọn) file kind = "run" do script train ghi ra, để kiểm tra schema
 targets:
@@ -56,8 +58,8 @@ targets:
     loader_module: models.dummy
     checkpoint: auto
     run_name: ddpm_smoke
-    label: ddim200
-    sample_kwargs: {sampler: ddim, steps: 200}
+    label: ddim100       # dòng chính của bảng (mục 2.6)
+    sample_kwargs: {sampler: ddim, steps: 100}
     trainer_config: "ddpm:16:cifar10"
 
   - model: ddpm
@@ -65,6 +67,7 @@ targets:
     checkpoint: auto
     run_name: ddpm_smoke
     label: ddpm500
+    comparison: sampler  # dòng phụ: chỉ so với DDIM 100 trên 10k ảnh đầu
     repeats: 1           # chạy lâu nên đo ít lần hơn
     sample_kwargs: {sampler: ddpm, steps: 500}
     trainer_config: "ddpm:16:cifar10"
@@ -73,8 +76,8 @@ targets:
 #  - model: ddpm
 #    checkpoint: outputs/checkpoints/cifar10/ddpm/best.pt
 #    run_name: ddpm_base
-#    label: ddim200
-#    sample_kwargs: {sampler: ddim, steps: 200}
+#    label: ddim100
+#    sample_kwargs: {sampler: ddim, steps: 100}
 #    trainer_config: configs/ddpm/cifar10/base.yaml
-#    quality: outputs/metrics/quality/ddpm_base_ddim200.json
+#    quality: outputs/metrics/quality/ddpm_base_ddim100.json
 #    run_metadata: outputs/metrics/runs/ddpm_base.json

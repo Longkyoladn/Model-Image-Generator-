@@ -117,10 +117,15 @@ FID_CONFIG_EXPECTED = {
     "prdc_num": 10000,
     "lpips_net": "alex",
     "lpips_pairs": 2000,
+    "sampler_compare_num_gen": 10000,
     "image_format": "png",
 }
 # Khối `eval` trong file quality (mục 4.2); phải giống nhau giữa các mô hình cùng dataset.
 EVAL_KEYS = ("eval_config", "eval_config_hash", "library", "commit", "ref_train", "ref_test", "num_gen")
+# Dòng phụ so sánh sampler của DDPM (mục 2.6): file quality có "comparison": "sampler".
+COMPARISON_SAMPLER = "sampler"
+SAMPLER_COMPARE_NUM_GEN = FID_CONFIG_EXPECTED["sampler_compare_num_gen"]
+SAMPLER_METRICS = ("fid_train_10k", "kid_test_mean", "kid_test_std")
 QUALITY_METRICS = (
     "fid_train_50k", "fid_test_10k_mean", "fid_test_10k_std", "kid_test_mean", "kid_test_std",
     "precision", "recall", "density", "coverage", "lpips_diversity",
@@ -230,10 +235,19 @@ def validate_spec(spec: dict) -> None:
             assert t.get("label"), f"{where}: DDPM phải có label phân biệt biến thể sampler, ví dụ ddim200"
         else:
             assert not t.get("label"), f"{where}: VAE/DCGAN để trống label"
+        if t.get("comparison") is not None:
+            assert t["comparison"] == COMPARISON_SAMPLER, f"{where}: comparison chỉ nhận {COMPARISON_SAMPLER!r}"
+            assert t["model"] == "ddpm", f"{where}: comparison = {COMPARISON_SAMPLER!r} chỉ dùng cho DDPM"
         if t["checkpoint"] == "auto":
             assert t.get("loader_module") == DUMMY, f"{where}: checkpoint 'auto' chỉ dùng cho {DUMMY}"
         else:
             assert Path(t["checkpoint"]).exists(), f"{where}: không thấy checkpoint {t['checkpoint']}"
+    main_ddpm = {t["run_name"] for t in targets if t["model"] == "ddpm" and t.get("comparison") is None}
+    for t in targets:
+        if t.get("comparison") == COMPARISON_SAMPLER:
+            assert t["run_name"] in main_ddpm, (
+                f"Dòng so sánh sampler {t['run_name']}/{t.get('label')} cần một dòng DDPM chính cùng run_name"
+            )
 
 
 def check_model(model: GenerativeModel, t: dict, dataset: str, device: torch.device) -> None:
@@ -432,6 +446,24 @@ def validate_quality(rec: dict, t: dict, dataset: str, num_gen: int | None = Non
     if rec.get("stage") == "tuning" or set(m) == {"kid_val_mean"}:
         assert is_num(m.get("kid_val_mean")), f"{where}: run tuning cần metrics.kid_val_mean"
         return
+    comparison = t.get("comparison")
+    assert rec.get("comparison") == comparison, (
+        f"{where}: comparison = {rec.get('comparison')!r}, spec ghi {comparison!r}"
+        " (dòng phụ so sánh sampler phải có comparison = 'sampler', dòng chính thì không)"
+    )
+    if comparison == COMPARISON_SAMPLER:
+        assert ev["num_gen"] == SAMPLER_COMPARE_NUM_GEN, (
+            f"{where}: dòng so sánh sampler cần eval.num_gen = {SAMPLER_COMPARE_NUM_GEN}, nhận {ev['num_gen']}"
+        )
+        has_keys(m, SAMPLER_METRICS, f"{where}.metrics")
+        for k in SAMPLER_METRICS:
+            assert is_num(m[k]), f"{where}: metrics.{k} = {m[k]!r} không phải số hữu hạn"
+        assert m["fid_train_10k"] >= 0 and m["kid_test_std"] >= 0, f"{where}: metric âm"
+        return
+    if t["model"] == "ddpm":
+        assert is_num(m.get("fid_train_10k")), (
+            f"{where}: dòng DDPM chính cần metrics.fid_train_10k (FID trên 10k ảnh đầu) cho bảng so sánh sampler"
+        )
     has_keys(m, QUALITY_METRICS, f"{where}.metrics")
     for k in QUALITY_METRICS:
         assert is_num(m[k]), f"{where}: metrics.{k} = {m[k]!r} không phải số hữu hạn"
@@ -518,6 +550,7 @@ def step_spec(ctx: Ctx) -> None:
             "repeats": min(int(raw.get("repeats", ctx.repeats)), ctx.repeats),
             "trainer_config": raw.get("trainer_config"),
             "quality": raw.get("quality"),
+            "comparison": raw.get("comparison"),
             "run_metadata": raw.get("run_metadata"),
             "checkpoint": raw["checkpoint"],
         }
@@ -730,23 +763,27 @@ def step_quality(ctx: Ctx) -> None:
     }
     for t in ctx.targets:
         model = ctx.models[(t["model"], t["checkpoint"])]
+        # Dòng phụ so sánh sampler: 1/5 số ảnh (đóng vai 10k so với bộ 50k), cùng seed đầu.
+        secondary = t["comparison"] == COMPARISON_SAMPLER
+        count = n // 5 if secondary else n
         with torch.inference_mode():
-            fake = model.sample(n, seed=42, **t["sample_kwargs"])
+            fake = model.sample(count, seed=42, **t["sample_kwargs"])
         folder = ctx.tmp / "samples" / ctx.dataset / t["model"] / (t["run_name"] + (f"__{t['label']}" if t["label"] else ""))
         save_png_folder(fake, folder)
-        fake = validate_png_folder(folder, n, shape, fake)
+        fake = validate_png_folder(folder, count, shape, fake)
+        eval_block = dict(ctx.eval_block, num_gen=SAMPLER_COMPARE_NUM_GEN) if secondary else ctx.eval_block
 
         # 7d. File quality: file thật nếu target có, không thì sinh file giả đúng schema.
         if t["quality"]:
             rec = read_json(Path(t["quality"]))
-            validate_quality(rec, t, ctx.dataset, num_gen)
+            validate_quality(rec, t, ctx.dataset, SAMPLER_COMPARE_NUM_GEN if secondary else num_gen)
             print(f"    OK {t['quality']}")
         else:
             if not ctx.dummy:
                 ctx.skipped.append(f"Quality {who(t)}: target chưa có file quality")
             rec = dummy_quality_record(t["model"], ctx.dataset, t["run_name"], t["label"], t["sample_kwargs"],
-                                       fake, real_train, real_test, ctx.eval_block)
-            validate_quality(rec, t, ctx.dataset, ctx.eval_block["num_gen"])
+                                       fake, real_train, real_test, eval_block, comparison=t["comparison"])
+            validate_quality(rec, t, ctx.dataset, eval_block["num_gen"])
         write_json(ctx.metrics / "quality" / result_name(ctx.dataset, t), rec)
 
     baseline = dummy_real_baseline(ctx.dataset, real_train, real_test)
@@ -768,6 +805,29 @@ def step_quality(ctx: Ctx) -> None:
         mutate(bad)
         try:
             validate_quality(bad, t0, ctx.dataset)
+        except AssertionError:
+            continue
+        raise AssertionError(f"validate_quality không bắt được lỗi: {name}")
+
+    sec = next((t for t in ctx.targets if t["comparison"] == COMPARISON_SAMPLER), None)
+    if sec is None:
+        ctx.skipped.append("Dòng so sánh sampler: spec không có target comparison = sampler")
+        return
+    main_ddpm = next(t for t in ctx.targets if t["model"] == "ddpm" and t["comparison"] is None)
+    sec_good = read_json(ctx.metrics / "quality" / result_name(ctx.dataset, sec))
+    main_good = read_json(ctx.metrics / "quality" / result_name(ctx.dataset, main_ddpm))
+    bad_cases = {
+        "dòng phụ thiếu comparison": (sec, sec_good, lambda r: r.pop("comparison")),
+        "dòng phụ num_gen 50000": (sec, sec_good, lambda r: r["eval"].__setitem__("num_gen", 50000)),
+        "dòng phụ thiếu fid_train_10k": (sec, sec_good, lambda r: r["metrics"].pop("fid_train_10k")),
+        "dòng DDPM chính thiếu fid_train_10k": (main_ddpm, main_good, lambda r: r["metrics"].pop("fid_train_10k")),
+        "dòng chính bị đánh dấu comparison": (main_ddpm, main_good, lambda r: r.__setitem__("comparison", "sampler")),
+    }
+    for name, (t, good_rec, mutate) in bad_cases.items():
+        bad = copy.deepcopy(good_rec)
+        mutate(bad)
+        try:
+            validate_quality(bad, t, ctx.dataset)
         except AssertionError:
             continue
         raise AssertionError(f"validate_quality không bắt được lỗi: {name}")
@@ -829,8 +889,13 @@ def step_aggregate(ctx: Ctx) -> None:
     result = aggregate(ctx, out)
     assert result.returncode == 0, f"aggregate_results.py lỗi:\n{result.stderr}"
     summary = (out / "summary.md").read_text(encoding="utf-8")
-    ddpm_rows = sum(1 for t in ctx.targets if t["model"] == "ddpm")
-    assert summary.count("| DDPM (") == 2 * ddpm_rows, "Mỗi biến thể DDPM phải có một dòng ở bảng chất lượng và bảng chi phí"
+    main_targets = [t for t in ctx.targets if t["comparison"] is None]
+    secondary = [t for t in ctx.targets if t["comparison"] == COMPARISON_SAMPLER]
+    main_ddpm = sum(1 for t in main_targets if t["model"] == "ddpm")
+    # Bảng chính (chất lượng + chi phí): mỗi dòng DDPM chính 2 lần. Bảng sampler: dòng chính tham chiếu + dòng phụ.
+    ref_runs = {t["run_name"] for t in secondary}
+    in_sampler_table = sum(1 for t in main_targets if t["model"] == "ddpm" and t["run_name"] in ref_runs) + len(secondary)
+    assert summary.count("| DDPM (") == 2 * main_ddpm + in_sampler_table, "Số dòng DDPM trong các bảng sai"
     assert "Không phát hiện vấn đề" in summary, f"Bảng có cảnh báo:\n{result.stderr}"
     for t in ctx.targets:
         if t["model"] == "ddpm":
@@ -839,7 +904,13 @@ def step_aggregate(ctx: Ctx) -> None:
 
     with (out / f"{ctx.dataset}_quality.csv").open(encoding="utf-8") as f:
         quality = list(csv.DictReader(f))
-    assert len(quality) == len(ctx.targets), "quality.csv phải có một dòng mỗi target"
+    assert len(quality) == len(main_targets), "quality.csv chỉ gồm dòng chính, mỗi target một dòng"
+    if secondary:
+        assert "### Đánh đổi sampler của DDPM" in summary, "summary.md thiếu bảng so sánh sampler"
+        with (out / f"{ctx.dataset}_sampler.csv").open(encoding="utf-8") as f:
+            sampler_rows = list(csv.DictReader(f))
+        assert len(sampler_rows) == in_sampler_table, "sampler.csv phải gồm dòng DDPM chính và các dòng phụ"
+        assert all(r["fid_train_10k"] and r["latency_ms"] for r in sampler_rows), "sampler.csv thiếu FID-10k hoặc latency"
     with (out / f"{ctx.dataset}_cost.csv").open(encoding="utf-8") as f:
         cost = {row["run_name"]: row for row in csv.DictReader(f)}
     # DDPM: 1 giờ trên máy tham chiếu + 2 giờ P100 × 1,3 = 3,6 giờ quy đổi.
@@ -898,6 +969,22 @@ def step_errors(ctx: Ctx) -> None:
     write_json(bad_path, dict(good, eval={**good["eval"], "num_gen": 10000}))
     expect_error("khac_num_gen", "eval.num_gen")
     write_json(bad_path, good)
+
+    sec = next((t for t in ctx.targets if t["comparison"] == COMPARISON_SAMPLER), None)
+    if sec is not None:
+        sec_path = q_dir / result_name(ctx.dataset, sec)
+        sec_good = read_json(sec_path)
+        # Bỏ dấu comparison: dòng 10k ảnh rơi vào bảng chính nên phải bị từ chối vì khác num_gen.
+        write_json(sec_path, {k: v for k, v in sec_good.items() if k != "comparison"})
+        expect_error("dong_phu_thieu_comparison", "eval.num_gen không giống nhau")
+        write_json(sec_path, dict(sec_good, eval={**sec_good["eval"], "num_gen": 5000}))
+        expect_error("dong_phu_sai_num_gen", "dòng so sánh sampler phải có eval.num_gen")
+        write_json(sec_path, dict(sec_good, eval={**sec_good["eval"], "commit": "khac"}))
+        expect_error("dong_phu_khac_eval", "khác bảng chính")
+        write_json(sec_path, sec_good)
+        write_json(bad_path, dict(good, comparison="sampler"))
+        expect_error("comparison_tren_VAE", "chỉ dùng cho DDPM")
+        write_json(bad_path, good)
 
     # Sau khi hoàn nguyên, bảng phải ghi lại được.
     result = aggregate(ctx, ctx.tmp / "summary_again")

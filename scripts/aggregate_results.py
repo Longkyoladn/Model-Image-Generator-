@@ -14,6 +14,10 @@ TASK_ASSIGNMENT.md):
 Các file quality/speed/compute được ghép theo (dataset, model, run_name, label)
 và nối với metadata run theo (dataset, model, run_name).
 
+File quality có "comparison": "sampler" (chỉ DDPM) là dòng phụ: không vào bảng
+chính và không bị so num_gen với bảng chính, mà vào bảng "Đánh đổi sampler của
+DDPM" cùng dòng DDPM chính của cùng run_name, so trên 10k ảnh đầu.
+
 Script tự tính (không tin số điền tay):
 - Tổng FLOPs train = train_steps × batch_size × train_flops_per_image.
 - Thời gian - T4 = Σ_h (giờ train trên h × k_h), với k_h = throughput_h / throughput_T4
@@ -21,6 +25,7 @@ Script tự tính (không tin số điền tay):
 
 Đầu ra trong --output-dir:
 - summary.md, <dataset>_quality.csv, <dataset>_cost.csv
+- <dataset>_sampler.csv nếu có dòng so sánh sampler của DDPM ("comparison": "sampler")
 - <dataset>_kid_vs_gpu_hours.png, <dataset>_kid_vs_train_flops.png
 - <dataset>_samples.png, <dataset>_interpolation.png, <dataset>_nearest_neighbor.png
 
@@ -46,6 +51,14 @@ EVAL_KEYS = ["eval_config", "eval_config_hash", "library", "commit", "ref_train"
 SPEED_ENV_KEYS = ["gpu", "torch"]
 RUN_REQUIRED = ["config", "seed", "commit", "train_steps", "batch_size", "hardware"]
 FIGURE_NAMES = ("samples", "interpolation", "nearest_neighbor")
+
+# Dòng phụ "so sánh sampler" của DDPM (mục 2.6): file quality có "comparison": "sampler",
+# sinh SAMPLER_COMPARE_NUM_GEN ảnh với cùng seed đầu của bộ chính. Dòng phụ không vào
+# bảng chính mà vào bảng "Đánh đổi sampler của DDPM", so trên cùng số ảnh với
+# metrics.fid_train_10k / kid_test của dòng DDPM chính (tính trên 10k ảnh đầu).
+COMPARISON_SAMPLER = "sampler"
+SAMPLER_COMPARE_NUM_GEN = 10000
+SAMPLER_METRICS = ("fid_train_10k", "kid_test_mean", "kid_test_std")
 FIGURE_TITLES = {"samples": "Ảnh mẫu", "interpolation": "Latent interpolation", "nearest_neighbor": "Nearest-neighbor"}
 
 # (khóa, tiêu đề, số chữ số thập phân, hướng tốt: "low" | "high" | None)
@@ -174,6 +187,10 @@ def build_rows(records: dict[str, list[dict]], dataset: str, issues: list[tuple[
     return sorted(rows.values(), key=lambda r: (order.get(r["model"], 99), r["run_name"] or "", r["label"]))
 
 
+def is_sampler_comparison(row: dict) -> bool:
+    return (row.get("quality") or {}).get("comparison") == COMPARISON_SAMPLER
+
+
 def row_name(row: dict) -> str:
     name = MODEL_DISPLAY.get(row["model"], str(row["model"]))
     detail = sampler_text(row) or row["label"]
@@ -263,7 +280,22 @@ def hardware_hours(run: dict) -> dict[str, float]:
 # Kiểm tra công bằng
 # --------------------------------------------------------------------------
 
-def check_fairness(dataset: str, rows: list[dict], converter: Converter, issues: list[tuple[str, str]]) -> None:
+def check_comparison_flags(dataset: str, rows: list[dict], issues: list[tuple[str, str]]) -> None:
+    """Trường `comparison` chỉ nhận "sampler" và chỉ dùng cho DDPM."""
+    for row in rows:
+        value = (row.get("quality") or {}).get("comparison")
+        if value is None:
+            continue
+        who = f"{row_name(row)} / {row['run_name']}"
+        if value != COMPARISON_SAMPLER:
+            issues.append(("error", f"[{dataset}] {who}: comparison = {value!r} không hợp lệ, chỉ nhận {COMPARISON_SAMPLER!r}."))
+        elif row["model"] != "ddpm":
+            issues.append(("error", f"[{dataset}] {who}: comparison = {COMPARISON_SAMPLER!r} chỉ dùng cho DDPM."))
+
+
+def check_fairness(dataset: str, rows: list[dict], secondary: list[dict], converter: Converter,
+                   issues: list[tuple[str, str]]) -> None:
+    """`rows`: dòng bảng chính; `secondary`: dòng phụ so sánh sampler của DDPM."""
     def add(level, msg):
         issues.append((level, f"[{dataset}] {msg}"))
 
@@ -272,7 +304,7 @@ def check_fairness(dataset: str, rows: list[dict], converter: Converter, issues:
         if model not in present:
             add("warning", f"Chưa có kết quả cho {MODEL_DISPLAY[model]}.")
 
-    for row in rows:
+    for row in rows + secondary:
         who = f"{row_name(row)} / {row['run_name']}"
         for kind in ("quality", "speed", "compute"):
             if row.get(kind) is None:
@@ -313,8 +345,34 @@ def check_fairness(dataset: str, rows: list[dict], converter: Converter, issues:
             detail = "; ".join(f"{v} → {', '.join(names)}" for v, names in values.items())
             add("error", f"eval.{key} không giống nhau giữa các mô hình: {detail}")
 
-    # Cùng điều kiện đo tốc độ, và phải đo trên phần cứng tham chiếu.
-    speed_rows = [r for r in rows if r.get("speed")]
+    # Dòng phụ: cùng cấu hình đánh giá với bảng chính, trừ num_gen (cố ý nhỏ hơn).
+    main_eval = {}
+    for key in EVAL_KEYS:
+        found = {json.dumps((r["quality"].get("eval") or {}).get(key), sort_keys=True) for r in quality_rows}
+        if len(found) == 1:
+            main_eval[key] = found.pop()
+    references = {r["run_name"]: r for r in rows if r["model"] == "ddpm" and r.get("quality")}
+    for row in secondary:
+        who = f"{row_name(row)} / {row['run_name']}"
+        ev = row["quality"].get("eval") or {}
+        if ev.get("num_gen") != SAMPLER_COMPARE_NUM_GEN:
+            add("error", f"{who}: dòng so sánh sampler phải có eval.num_gen = {SAMPLER_COMPARE_NUM_GEN}, nhận {ev.get('num_gen')}.")
+        for key in EVAL_KEYS:
+            if key == "num_gen" or key not in main_eval:
+                continue
+            if json.dumps(ev.get(key), sort_keys=True) != main_eval[key]:
+                add("error", f"{who}: eval.{key} = {ev.get(key)!r} khác bảng chính ({main_eval[key]}).")
+        missing = [k for k in SAMPLER_METRICS if ((row["quality"].get("metrics") or {}).get(k)) is None]
+        if missing:
+            add("error", f"{who}: file quality so sánh sampler thiếu metrics {', '.join(missing)}.")
+        ref = references.get(row["run_name"])
+        if ref is None:
+            add("warning", f"{who}: không có dòng DDPM chính cùng run_name để so sánh sampler.")
+        elif (ref["quality"].get("metrics") or {}).get("fid_train_10k") is None:
+            add("warning", f"{row_name(ref)} / {ref['run_name']}: thiếu metrics.fid_train_10k (FID trên 10k ảnh đầu) nên bảng so sánh sampler không có FID.")
+
+    # Cùng điều kiện đo tốc độ, và phải đo trên phần cứng tham chiếu (gồm cả dòng phụ).
+    speed_rows = [r for r in rows + secondary if r.get("speed")]
     checks = {key: (lambda s, k=key: (s.get("env") or {}).get(k)) for key in SPEED_ENV_KEYS}
     checks["precision"] = lambda s: s.get("precision")
     checks["batch_sizes"] = lambda s: sorted(r["batch_size"] for r in s.get("results", []))
@@ -333,7 +391,7 @@ def check_fairness(dataset: str, rows: list[dict], converter: Converter, issues:
 
     # Cùng công cụ đo MACs.
     values = {}
-    for row in rows:
+    for row in rows + secondary:
         if row.get("compute"):
             c = row["compute"]
             values.setdefault(f"{c.get('tool')} {c.get('tool_version')}", []).append(row_name(row))
@@ -600,8 +658,40 @@ def compose_figures(dataset: str, rows: list[dict], figures_dir: Path, out_dir: 
 # Báo cáo
 # --------------------------------------------------------------------------
 
-def dataset_section(dataset: str, rows: list[dict], tuning: list[dict], real_baseline: dict | None,
-                    converter: Converter, out_dir: Path, figures_dir: Path,
+def sampler_section(dataset: str, rows: list[dict], secondary: list[dict], converter: Converter,
+                    out_dir: Path) -> list[str]:
+    """Bảng "Đánh đổi sampler của DDPM": dòng DDPM chính (10k ảnh đầu) và các dòng phụ."""
+    run_names = {r["run_name"] for r in secondary}
+    group = [r for r in rows if r["model"] == "ddpm" and r["run_name"] in run_names] + secondary
+    header = ["Mô hình", "Run", "Ảnh dùng để so", "FID_train-10k", "KID_test ×10³", "GFLOPs/ảnh",
+              "Latency (ms, batch 1)", "Throughput (ảnh/s)"]
+    body, raw = [], []
+    for r in group:
+        m = (r.get("quality") or {}).get("metrics") or {}
+        cost = cost_values(r, converter)
+        kid, kid_std = m.get("kid_test_mean"), m.get("kid_test_std")
+        kid_text = fmt(kid * 1000 if kid is not None else None, 2)
+        if kid is not None and kid_std is not None:
+            kid_text += f" ± {fmt(kid_std * 1000, 2)}"
+        source = (f"{SAMPLER_COMPARE_NUM_GEN:,} ảnh riêng" if is_sampler_comparison(r)
+                  else f"{SAMPLER_COMPARE_NUM_GEN:,} ảnh đầu của bộ chính")
+        values = [m.get("fid_train_10k"), kid, cost["gflops_per_image"], cost["latency_ms"], cost["throughput_img_s"]]
+        body.append([row_name(r), r["run_name"] or "", source, fmt(values[0], 2), kid_text,
+                     fmt(values[2], 3), fmt(values[3], 3), fmt(values[4], 1)])
+        raw.append([row_name(r), r["run_name"], source] + values)
+    write_csv(out_dir / f"{dataset}_sampler.csv",
+              ["model", "run_name", "source", "fid_train_10k", "kid_test", "gflops_per_image", "latency_ms",
+               "throughput_img_s"], raw)
+    return [
+        "### Đánh đổi sampler của DDPM",
+        markdown_table(header, body),
+        f"Cùng một checkpoint, cùng {SAMPLER_COMPARE_NUM_GEN:,} seed đầu: chênh lệch giữa các dòng chỉ do sampler."
+        " Không so số ở bảng này với FID_train-50k của bảng chính (FID trên ít ảnh hơn luôn cao hơn).",
+    ]
+
+
+def dataset_section(dataset: str, rows: list[dict], secondary: list[dict], tuning: list[dict],
+                    real_baseline: dict | None, converter: Converter, out_dir: Path, figures_dir: Path,
                     issues: list[tuple[str, str]]) -> str:
     parts = [f"## {dataset}"]
     names = [row_name(r) for r in rows]
@@ -658,6 +748,9 @@ def dataset_section(dataset: str, rows: list[dict], tuning: list[dict], real_bas
             ["model", "run_name"] + [key for key, _, _ in COST_COLUMNS],
             [[names[i], runs[i]] + [v[key] for key, _, _ in COST_COLUMNS] for i, v in enumerate(c)],
         )
+
+    if secondary:
+        parts += sampler_section(dataset, rows, secondary, converter, out_dir)
 
     # Biểu đồ.
     charts = plot_curves(dataset, rows, converter, out_dir, issues)
@@ -744,9 +837,12 @@ def main() -> int:
                     issues.append(
                         ("warning", f"[{dataset}] {row_name(r)} / {r['run_name']}: không có metadata nên bị loại khỏi bảng chính.")
                     )
-        check_fairness(dataset, main_rows, converter, issues)
+        check_comparison_flags(dataset, main_rows, issues)
+        secondary = [r for r in main_rows if is_sampler_comparison(r) and r["model"] == "ddpm"]
+        main_rows = [r for r in main_rows if r not in secondary]
+        check_fairness(dataset, main_rows, secondary, converter, issues)
         real_baseline = next((r for r in records["real_baseline"] if r.get("dataset") == dataset), None)
-        prepared.append((dataset, main_rows, tuning, real_baseline))
+        prepared.append((dataset, main_rows, secondary, tuning, real_baseline))
 
     errors = [m for level, m in issues if level == "error"]
     for m in errors:
@@ -760,8 +856,8 @@ def main() -> int:
 
     out_dir.mkdir(parents=True, exist_ok=True)
     sections = [
-        dataset_section(d, rows, tuning, baseline, converter, out_dir, figures_dir, issues)
-        for d, rows, tuning, baseline in prepared
+        dataset_section(d, rows, secondary, tuning, baseline, converter, out_dir, figures_dir, issues)
+        for d, rows, secondary, tuning, baseline in prepared
     ]
     warnings_ = [m for level, m in issues if level == "warning"]
     for m in warnings_:
