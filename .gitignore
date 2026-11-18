@@ -1,4 +1,1 @@
-scripts/smoke_test_benchmark.py
-configs/eval 
-models/dummy.py
-__pycache__ 
+__pycache__/

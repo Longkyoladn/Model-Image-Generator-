@@ -1,0 +1,80 @@
+# Spec dùng chung cho evaluation/speed.py và scripts/smoke_test_benchmark.py.
+#
+# BƯỚC 1 — Chạy thử bằng mô hình giả (mặc định, không cần checkpoint):
+#     python scripts/smoke_test_benchmark.py
+#
+# BƯỚC 2 — Trước khi train/đánh giá thật, mỗi thành viên chép file này, sửa
+# target của mô hình mình (bỏ `loader_module`, điền checkpoint và config thật)
+# rồi chạy smoke test với spec đó. Phải PASS mới chạy mô hình thật:
+#     python scripts/smoke_test_benchmark.py --spec configs/eval/speed_<tên>.yaml
+#
+# BƯỚC 3 — Đo tốc độ thật trên T4 (mọi target được đo xen kẽ trong cùng một
+# phiên để nhiễu phần cứng chia đều cho các mô hình):
+#     python evaluation/speed.py --spec configs/eval/speed_<tên>.yaml
+#
+# speed.py bỏ qua các khóa nó không dùng (smoke, trainer_config, quality, run_metadata).
+
+dataset: cifar10         # cifar10 | fashion_mnist | celeba
+precision: fp32          # fp32 | fp16, giống nhau cho mọi mô hình
+batch_sizes: [1, 64, 256]
+warmup: 5
+repeats: 20              # số lần đo mặc định cho mỗi target
+seed: 0
+
+# Chỉ smoke test đọc: đo ít để chạy nhanh, vì smoke test chỉ kiểm tra cấu trúc output.
+smoke:
+  batch_sizes: [1, 4]
+  warmup: 1
+  repeats: 2
+  num_quality_images: 200   # số ảnh sinh/ảnh thật giả dùng để thử định dạng file FID/diversity
+
+# Mỗi target là một (checkpoint, biến thể sampler).
+#   model           vae | dcgan | ddpm
+#   loader_module   chỉ dùng cho mô hình giả (models.dummy); mô hình thật thì XÓA dòng này
+#   checkpoint      "auto" = smoke test tự tạo checkpoint giả; mô hình thật điền đường dẫn .pt
+#   run_name        trùng run_name trong metadata của run (mục 4.3)
+#   label           phân biệt biến thể sampler của cùng một checkpoint; VAE/DCGAN để trống
+#   sample_kwargs   tham số truyền vào model.sample(); DDPM bắt buộc có sampler và steps
+#   trainer_config  config truyền vào build_trainer() để kiểm tra calibrate.py
+#                   (mô hình giả: "<tên>:<batch>:<dataset>"; mô hình thật: configs/<model>/<dataset>/<exp>.yaml)
+#   quality         (tuỳ chọn) file kind = "quality" do evaluation/fid.py ghi ra, để kiểm tra schema
+#   run_metadata    (tuỳ chọn) file kind = "run" do script train ghi ra, để kiểm tra schema
+targets:
+  - model: vae
+    loader_module: models.dummy
+    checkpoint: auto
+    run_name: vae_smoke
+    trainer_config: "vae:16:cifar10"
+
+  - model: dcgan
+    loader_module: models.dummy
+    checkpoint: auto
+    run_name: dcgan_smoke
+    trainer_config: "dcgan:16:cifar10"
+
+  - model: ddpm
+    loader_module: models.dummy
+    checkpoint: auto
+    run_name: ddpm_smoke
+    label: ddim200
+    sample_kwargs: {sampler: ddim, steps: 200}
+    trainer_config: "ddpm:16:cifar10"
+
+  - model: ddpm
+    loader_module: models.dummy
+    checkpoint: auto
+    run_name: ddpm_smoke
+    label: ddpm500
+    repeats: 1           # chạy lâu nên đo ít lần hơn
+    sample_kwargs: {sampler: ddpm, steps: 500}
+    trainer_config: "ddpm:16:cifar10"
+
+# Ví dụ target của mô hình thật (bỏ comment khi dùng):
+#  - model: ddpm
+#    checkpoint: outputs/checkpoints/cifar10/ddpm/best.pt
+#    run_name: ddpm_base
+#    label: ddim200
+#    sample_kwargs: {sampler: ddim, steps: 200}
+#    trainer_config: configs/ddpm/cifar10/base.yaml
+#    quality: outputs/metrics/quality/ddpm_base_ddim200.json
+#    run_metadata: outputs/metrics/runs/ddpm_base.json
