@@ -17,7 +17,7 @@ và nối với metadata run theo (dataset, model, run_name).
 Script tự tính (không tin số điền tay):
 - Tổng FLOPs train = train_steps × batch_size × train_flops_per_image.
 - Thời gian - T4 = Σ_h (giờ train trên h × k_h), với k_h = throughput_h / throughput_T4
-  lấy từ các file calibration cùng (model, config).
+  lấy từ các file calibration cùng (dataset, model, config).
 
 Đầu ra trong --output-dir:
 - summary.md, <dataset>_quality.csv, <dataset>_cost.csv
@@ -145,8 +145,14 @@ def sampler_text(row: dict) -> str:
 def build_rows(records: dict[str, list[dict]], dataset: str, issues: list[tuple[str, str]]) -> list[dict]:
     runs = {}
     for rec in records["run"]:
-        if rec.get("dataset") == dataset:
-            runs[(rec.get("model"), rec.get("run_name"))] = rec
+        if rec.get("dataset") != dataset:
+            continue
+        key = (rec.get("model"), rec.get("run_name"))
+        if key in runs:
+            issues.append(
+                ("error", f"[{dataset}] Trùng metadata run cho {key}: {runs[key]['_path']} và {rec['_path']}")
+            )
+        runs[key] = rec
     rows: dict[tuple, dict] = {}
     for kind in ("quality", "speed", "compute"):
         for rec in records[kind]:
@@ -184,12 +190,27 @@ def is_reference_device(device: str, reference: str) -> bool:
     return reference.lower() in d and " x" not in d
 
 
-def build_calibration_index(records: list[dict]) -> dict[tuple, dict[str, dict]]:
+def calibration_key(rec: dict) -> tuple:
+    """Khóa ghép calibration với run: cùng config nhưng khác dataset là hai phép đo khác nhau."""
+    return (rec.get("dataset"), rec.get("model"), norm_config(rec.get("config")))
+
+
+def build_calibration_index(records: list[dict]) -> tuple[dict[tuple, dict[str, dict]], list[str]]:
     index: dict[tuple, dict[str, dict]] = {}
+    problems = []
     for rec in records:
-        key = (rec.get("model"), norm_config(rec.get("config")))
-        index.setdefault(key, {})[rec.get("device")] = rec
-    return index
+        if not rec.get("dataset"):
+            problems.append(f"File calibration {rec['_path']} thiếu trường dataset.")
+            continue
+        by_device = index.setdefault(calibration_key(rec), {})
+        device = rec.get("device")
+        if device in by_device:
+            problems.append(
+                f"Trùng file calibration cho {calibration_key(rec)} trên {device!r}: "
+                f"{by_device[device]['_path']} và {rec['_path']}"
+            )
+        by_device[device] = rec
+    return index, problems
 
 
 class Converter:
@@ -202,7 +223,7 @@ class Converter:
     def factor(self, run: dict, device: str) -> tuple[float | None, list[str]]:
         if is_reference_device(device, self.reference):
             return 1.0, []
-        cal = self.calibrations.get((run.get("model"), norm_config(run.get("config"))), {})
+        cal = self.calibrations.get(calibration_key(run), {})
         ref = next((rec for dev, rec in cal.items() if is_reference_device(dev, self.reference)), None)
         here = cal.get(device)
         missing = []
@@ -211,7 +232,8 @@ class Converter:
         if here is None:
             missing.append(f"chưa có file calibration trên {device!r}")
         if missing:
-            return None, [f"không quy đổi được giờ train trên {device!r} của config {run.get('config')}: " + ", ".join(missing)]
+            return None, [f"không quy đổi được giờ train trên {device!r} của config {run.get('config')} "
+                          f"(dataset {run.get('dataset')}): " + ", ".join(missing)]
         notes = []
         for name, rec in ((self.reference, ref), (device, here)):
             for key in ("batch_size", "precision"):
@@ -698,8 +720,9 @@ def main() -> int:
     figures_dir = Path(args.figures_dir)
     inputs = [Path(i) for i in args.inputs]
     records, problems = load_records([i for i in inputs if i.resolve() != out_dir.resolve()])
-    issues: list[tuple[str, str]] = [("error", msg) for msg in problems]
-    converter = Converter(build_calibration_index(records["calibration"]), args.reference_device)
+    calibrations, cal_problems = build_calibration_index(records["calibration"])
+    issues: list[tuple[str, str]] = [("error", msg) for msg in problems + cal_problems]
+    converter = Converter(calibrations, args.reference_device)
 
     datasets = sorted(
         {r.get("dataset") for kind in ("quality", "speed", "compute") for r in records[kind] if r.get("dataset")}
