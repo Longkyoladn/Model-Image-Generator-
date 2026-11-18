@@ -15,6 +15,11 @@ Quy ước đo:
   device. Không tính load checkpoint, chuyển về CPU, đổi sang uint8, lưu file.
 - Đồng bộ GPU trước và sau mỗi lần đo.
 - Warm-up trước khi đo; các mô hình được đo xen kẽ theo từng vòng lặp.
+- `warmup`, `repeats` đặt chung ở spec; mỗi target có thể ghi đè (DDPM: warmup 1,
+  repeats ít hơn vì mỗi lần đo đã dài vài phút).
+- Target cùng checkpoint (ví dụ ddim100 và ddpm500) dùng chung một bản mô hình.
+- File JSON được ghi lại sau mỗi vòng đo (`complete = false` cho tới khi đo đủ),
+  nên phiên Colab/Kaggle bị ngắt vẫn còn số liệu các vòng đã xong.
 """
 
 from __future__ import annotations
@@ -107,8 +112,84 @@ def _is_oom(err: BaseException) -> bool:
     return "out of memory" in str(err).lower()
 
 
-def run_benchmark(spec: dict, output_dir: str | Path, device: str | None = None) -> list[Path]:
-    """Chạy benchmark theo spec và ghi một file JSON cho mỗi target."""
+def _model_key(raw: dict) -> tuple:
+    """Các target cùng (mô hình, checkpoint, loader) dùng chung một bản mô hình trên device."""
+    return (raw["model"], str(Path(raw["checkpoint"]).resolve()), raw.get("loader_module"))
+
+
+def _target_complete(target: dict) -> bool:
+    return all(
+        b in target["oom"] or len(target["times"][b]) >= target["repeats"] for b in target["times"]
+    )
+
+
+def _speed_record(target: dict, batch_sizes: list[int], precision: str, env: dict, commit: str | None,
+                  base_seed: int) -> dict:
+    model = target["model"]
+    results = []
+    for b in batch_sizes:
+        times = target["times"][b]
+        if b in target["oom"] or not times:
+            results.append({"batch_size": b, "oom": b in target["oom"], "n_repeats": 0})
+            continue
+        mean, std = _mean_std(times)
+        mem = target["memory"][b]
+        results.append(
+            {
+                "batch_size": b,
+                "oom": False,
+                "n_repeats": len(times),
+                "time_per_batch_s_mean": mean,
+                "time_per_batch_s_std": std,
+                "time_per_image_ms": mean / b * 1000,
+                "throughput_img_s": b / mean,
+                "peak_memory_mb": max(mem) if mem else None,
+            }
+        )
+    return {
+        "kind": "speed",
+        "model": target["model_name"],
+        "dataset": target["dataset"],
+        "run_name": target["run_name"],
+        "label": target["label"],
+        "checkpoint": target["checkpoint"].name,
+        "checkpoint_mb": target["checkpoint"].stat().st_size / 2**20,
+        "load_time_s": target["load_time_s"],
+        "model_shared": target["model_shared"],
+        "sample_kwargs": target["sample_kwargs"],
+        "forward_passes_per_image": model.forward_passes_per_image(**target["sample_kwargs"]),
+        "image_shape": list(model.image_shape),
+        "params_m": model.num_parameters() / 1e6,
+        "precision": precision,
+        "warmup": target["warmup"],
+        "repeats_requested": target["repeats"],
+        # False khi phiên bị ngắt giữa chừng: số liệu là của các vòng đã đo xong.
+        "complete": _target_complete(target),
+        "seed": base_seed,
+        "env": env,
+        "commit": commit,
+        "results": results,
+    }
+
+
+def _write_json(path: Path, record: dict) -> None:
+    """Ghi qua file tạm rồi đổi tên, để file không bị hỏng nếu phiên bị ngắt lúc đang ghi."""
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
+def run_benchmark(spec: dict, output_dir: str | Path, device: str | None = None,
+                  on_round=None) -> list[Path]:
+    """Chạy benchmark theo spec và ghi một file JSON cho mỗi target.
+
+    - `warmup` và `repeats` đặt chung ở spec, mỗi target có thể ghi đè riêng
+      (DDPM chỉ cần warmup 1 vì một lần sinh đã đủ lâu để GPU ổn định).
+    - Target cùng checkpoint dùng chung một bản mô hình (`model_shared = true`).
+    - File của mỗi target được ghi lại sau mỗi vòng đo, với `complete = false`
+      cho tới khi đo đủ; phiên bị ngắt thì vẫn còn số liệu các vòng đã xong.
+    - `on_round(r, paths)` (tuỳ chọn) được gọi sau khi ghi file của vòng r.
+    """
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     precision = spec.get("precision", "fp32")
     if precision not in ("fp32", "fp16"):
@@ -116,21 +197,30 @@ def run_benchmark(spec: dict, output_dir: str | Path, device: str | None = None)
     if precision == "fp16" and dev.type != "cuda":
         raise ValueError("fp16 chỉ đo được trên GPU")
     batch_sizes = [int(b) for b in spec.get("batch_sizes", [1, 64])]
-    warmup = int(spec.get("warmup", 5))
+    default_warmup = int(spec.get("warmup", 5))
     default_repeats = int(spec.get("repeats", 20))
     base_seed = int(spec.get("seed", 0))
     skip_check = bool(spec.get("skip_contract_check", False))
 
+    loaded: dict[tuple, tuple] = {}   # _model_key -> (mô hình, thời gian load)
     targets = []
     for raw in spec["targets"]:
         kwargs = dict(raw.get("sample_kwargs") or {})
         ckpt = Path(raw["checkpoint"])
-        start = time.perf_counter()
-        model = load_model(raw["model"], ckpt, dev, module=raw.get("loader_module"))
-        _sync(dev)
-        load_time = time.perf_counter() - start
+        key = _model_key(raw)
+        shared = key in loaded
+        if not shared:
+            start = time.perf_counter()
+            model = load_model(raw["model"], ckpt, dev, module=raw.get("loader_module"))
+            _sync(dev)
+            loaded[key] = (model, time.perf_counter() - start)
+        model, load_time = loaded[key]
         if not skip_check:
             check_contract(model, **kwargs)
+        repeats = int(raw.get("repeats", default_repeats))
+        warmup = int(raw.get("warmup", default_warmup))
+        if repeats < 1 or warmup < 0:
+            raise ValueError(f"{raw['model']} {raw.get('label', '')}: repeats phải ≥ 1, warmup phải ≥ 0")
         targets.append(
             {
                 "model_name": raw["model"],
@@ -139,8 +229,10 @@ def run_benchmark(spec: dict, output_dir: str | Path, device: str | None = None)
                 "label": raw.get("label", ""),
                 "checkpoint": ckpt,
                 "sample_kwargs": kwargs,
-                "repeats": int(raw.get("repeats", default_repeats)),
+                "repeats": repeats,
+                "warmup": warmup,
                 "model": model,
+                "model_shared": shared,
                 "load_time_s": load_time,
                 "times": {b: [] for b in batch_sizes},
                 "memory": {b: [] for b in batch_sizes},
@@ -167,79 +259,44 @@ def run_benchmark(spec: dict, output_dir: str | Path, device: str | None = None)
             if mem is not None:
                 target["memory"][batch_size].append(mem)
 
+    env = environment_info(dev)
+    commit = _git_commit()
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for target in targets:
+        parts = [str(target["dataset"]), target["model_name"], target["run_name"]]
+        if target["label"]:
+            parts.append(target["label"])
+        target["path"] = out_dir / ("__".join(parts) + ".json")
+
+    def save(which) -> list[Path]:
+        for target in which:
+            _write_json(target["path"], _speed_record(target, batch_sizes, precision, env, commit, base_seed))
+        return [t["path"] for t in which]
+
     for target in targets:
         for b in batch_sizes:
-            for i in range(warmup):
+            for i in range(target["warmup"]):
                 measure(target, b, base_seed + i, record=False)
 
     # Vòng lặp ngoài là số lần đo, vòng trong là mô hình: nhiễu của phần cứng
     # (throttle, GPU dùng chung) được chia đều cho các mô hình.
     for r in range(max(t["repeats"] for t in targets)):
-        for target in targets:
-            if r >= target["repeats"]:
-                continue
+        active = [t for t in targets if r < t["repeats"]]
+        for target in active:
             for b in batch_sizes:
                 measure(target, b, base_seed + r, record=True)
+        paths = save(active)
+        if on_round is not None:
+            on_round(r, paths)
 
-    env = environment_info(dev)
-    commit = _git_commit()
-    out_dir = Path(output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    written = []
+    written = save(targets)
     for target in targets:
-        model = target["model"]
-        results = []
-        for b in batch_sizes:
-            times = target["times"][b]
-            if b in target["oom"] or not times:
-                results.append({"batch_size": b, "oom": True})
-                continue
-            mean, std = _mean_std(times)
-            mem = target["memory"][b]
-            results.append(
-                {
-                    "batch_size": b,
-                    "oom": False,
-                    "n_repeats": len(times),
-                    "time_per_batch_s_mean": mean,
-                    "time_per_batch_s_std": std,
-                    "time_per_image_ms": mean / b * 1000,
-                    "throughput_img_s": b / mean,
-                    "peak_memory_mb": max(mem) if mem else None,
-                }
-            )
-        record = {
-            "kind": "speed",
-            "model": target["model_name"],
-            "dataset": target["dataset"],
-            "run_name": target["run_name"],
-            "label": target["label"],
-            "checkpoint": target["checkpoint"].name,
-            "checkpoint_mb": target["checkpoint"].stat().st_size / 2**20,
-            "load_time_s": target["load_time_s"],
-            "sample_kwargs": target["sample_kwargs"],
-            "forward_passes_per_image": model.forward_passes_per_image(
-                **target["sample_kwargs"]
-            ),
-            "image_shape": list(model.image_shape),
-            "params_m": model.num_parameters() / 1e6,
-            "precision": precision,
-            "warmup": warmup,
-            "seed": base_seed,
-            "env": env,
-            "commit": commit,
-            "results": results,
-        }
-        parts = [str(target["dataset"]), target["model_name"], target["run_name"]]
-        if target["label"]:
-            parts.append(target["label"])
-        path = out_dir / ("__".join(parts) + ".json")
-        path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-        written.append(path)
-
         title = f"{target['model_name']} {target['label']}".strip()
-        print(f"\n{title} ({target['run_name']}) trên {env['gpu'] or env['device']}, {precision}")
-        for res in results:
+        shared = ", dùng chung mô hình với target trước" if target["model_shared"] else ""
+        print(f"\n{title} ({target['run_name']}) trên {env['gpu'] or env['device']}, {precision}, "
+              f"warmup {target['warmup']}, {target['repeats']} lần đo{shared}")
+        for res in _speed_record(target, batch_sizes, precision, env, commit, base_seed)["results"]:
             if res["oom"]:
                 print(f"  batch {res['batch_size']:>5}: hết bộ nhớ")
                 continue

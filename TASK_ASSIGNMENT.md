@@ -612,7 +612,7 @@ Các bước smoke test kiểm tra:
 1. **Spec**: khóa bắt buộc; DDPM có `sampler`, `steps` và `label`; `comparison: sampler` chỉ cho DDPM và phải có dòng DDPM chính cùng `run_name`.
 2. **Interface**: `load_model` trả về `GenerativeModel`, tên module đúng vai trò, `image_shape` đúng dataset (mục 2.1), `sample()` trả về tensor float `(n, C, H, W)` trong [0, 1], cùng device (kể cả chỉ số GPU), cùng seed cho cùng ảnh, `forward_passes_per_image` và `example_inputs()` đúng.
 3. **Mô hình sai**: chạy kiểm tra của bước 2 và kiểm tra `Trainer` trên từng biến thể lỗi trong `models/dummy.py` (sai thứ tự chiều, quên đổi [-1, 1] về [0, 1], uint8, NaN, bỏ qua seed, bỏ qua `n`, sai tên module, thiếu discriminator, sai `forward_passes_per_image`, `example_inputs()` sai batch, Trainer sai shape/precision/batch...). Mỗi lỗi phải bị bắt đúng chỗ; nếu không, bộ kiểm tra bị lỏng và lỗi tương tự của mô hình thật cũng sẽ lọt qua.
-4. **Tốc độ**: `evaluation/speed.py` ghi file `speed` đúng khóa ghép và đủ trường.
+4. **Tốc độ**: `evaluation/speed.py` ghi file `speed` đúng khóa ghép và đủ trường; `warmup`/`repeats` riêng của từng target được áp dụng; target cùng checkpoint dùng chung mô hình; file được ghi sau mỗi vòng đo (`complete = false` cho tới khi đo xong) để phiên bị ngắt không mất số liệu.
 5. **MACs/FLOPs**: file `compute` đúng công thức mục 2.5; fvcore và thop cho cùng MACs.
 6. **Hiệu chuẩn**: `build_trainer` trả về `Trainer` đúng `batch_size`, `image_shape`, `precision`, `num_gpus` và `train_step` chạy được; file `calibration` đủ trường.
 7. **Ảnh mẫu**: `scripts/render_samples.py` ghi đúng đường dẫn mục 4.2.

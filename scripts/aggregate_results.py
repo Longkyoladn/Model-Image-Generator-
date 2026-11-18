@@ -388,6 +388,11 @@ def check_fairness(dataset: str, rows: list[dict], secondary: list[dict], conver
         device = env.get("gpu") or env.get("device") or ""
         if not is_reference_device(device, converter.reference):
             add("error", f"{row_name(row)} / {row['run_name']}: tốc độ sinh đo trên {device!r}, phải đo trên {converter.reference} (mục 2.4).")
+        # File cũ không có "complete" thì coi như đã đo xong.
+        if row["speed"].get("complete") is False:
+            done = min((r.get("n_repeats", 0) for r in row["speed"].get("results", []) if not r.get("oom")), default=0)
+            add("warning", f"{row_name(row)} / {row['run_name']}: speed.py chưa đo xong "
+                           f"({done}/{row['speed'].get('repeats_requested')} lần đo), có thể phiên bị ngắt; nên chạy lại.")
 
     # Cùng công cụ đo MACs.
     values = {}
@@ -432,7 +437,8 @@ def cost_values(row: dict, converter: Converter) -> dict:
     run = row.get("run") or {}
     speed = row.get("speed") or {}
     compute = row.get("compute")
-    results = [r for r in speed.get("results", []) if not r.get("oom")]
+    # Bỏ batch bị OOM và batch chưa đo tới (file ghi dở khi phiên bị ngắt).
+    results = [r for r in speed.get("results", []) if not r.get("oom") and "throughput_img_s" in r]
     latency = next((r["time_per_image_ms"] for r in results if r["batch_size"] == 1), None)
     best = max(results, key=lambda r: r["throughput_img_s"], default=None)
     if compute:

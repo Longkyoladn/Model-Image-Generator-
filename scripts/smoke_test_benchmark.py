@@ -132,8 +132,8 @@ QUALITY_METRICS = (
 )
 SPEED_KEYS = (
     "kind", "model", "dataset", "run_name", "label", "checkpoint", "checkpoint_mb", "load_time_s",
-    "sample_kwargs", "forward_passes_per_image", "image_shape", "params_m", "precision", "warmup",
-    "seed", "env", "commit", "results",
+    "model_shared", "sample_kwargs", "forward_passes_per_image", "image_shape", "params_m", "precision",
+    "warmup", "repeats_requested", "complete", "seed", "env", "commit", "results",
 )
 SPEED_RESULT_KEYS = (
     "batch_size", "oom", "n_repeats", "time_per_batch_s_mean", "time_per_batch_s_std",
@@ -328,6 +328,9 @@ def validate_speed(rec: dict, t: dict, dataset: str, spec: dict) -> None:
     assert is_num(rec["checkpoint_mb"]) and rec["checkpoint_mb"] > 0, f"{where}: checkpoint_mb"
     assert is_num(rec["params_m"]) and rec["params_m"] > 0, f"{where}: params_m"
     assert rec["precision"] == spec.get("precision", "fp32"), f"{where}: precision"
+    assert rec["warmup"] == t["warmup"], f"{where}: warmup {rec['warmup']}, target ghi {t['warmup']}"
+    assert rec["repeats_requested"] == t["repeats"], f"{where}: repeats_requested {rec['repeats_requested']}"
+    assert rec["complete"] is True, f"{where}: đo xong mà complete vẫn là {rec['complete']!r}"
     has_keys(rec["env"], ("device", "gpu", "torch"), f"{where}.env")
     sizes = [r["batch_size"] for r in rec["results"]]
     assert sizes == spec["batch_sizes"], f"{where}: batch_sizes {sizes}, cần {spec['batch_sizes']}"
@@ -548,6 +551,7 @@ def step_spec(ctx: Ctx) -> None:
             "loader_module": raw.get("loader_module"),
             "sample_kwargs": dict(raw.get("sample_kwargs") or {}),
             "repeats": min(int(raw.get("repeats", ctx.repeats)), ctx.repeats),
+            "warmup": min(int(raw.get("warmup", ctx.warmup)), ctx.warmup),
             "trainer_config": raw.get("trainer_config"),
             "quality": raw.get("quality"),
             "comparison": raw.get("comparison"),
@@ -630,17 +634,40 @@ def step_speed(ctx: Ctx) -> None:
         "targets": [
             {"model": t["model"], "loader_module": t["loader_module"], "checkpoint": t["checkpoint"],
              "run_name": t["run_name"], "label": t["label"], "sample_kwargs": t["sample_kwargs"],
-             "repeats": t["repeats"]}
+             "repeats": t["repeats"], "warmup": t["warmup"]}
             for t in ctx.targets
         ],
     }
-    written = run_benchmark(spec, ctx.metrics / "speed", str(ctx.device))
+    out = ctx.metrics / "speed"
+    partial_dir = ctx.tmp / "speed_partial"
+
+    # Sau vòng đầu, file của mọi target phải đã có trên đĩa, ghi đúng tiến độ (mô phỏng phiên bị ngắt).
+    def after_round(r: int, paths: list[Path]) -> None:
+        if r != 0:
+            return
+        assert len(paths) == len(ctx.targets), "Vòng đầu phải ghi file cho mọi target"
+        for t in ctx.targets:
+            rec = read_json(out / result_name(ctx.dataset, t))
+            assert rec["complete"] is (t["repeats"] == 1), f"{who(t)}: sau vòng 1, complete = {rec['complete']}"
+            assert all(x["n_repeats"] == 1 for x in rec["results"] if not x["oom"]), f"{who(t)}: sau vòng 1 phải có 1 lần đo"
+        shutil.copytree(out, partial_dir)
+
+    written = run_benchmark(spec, out, str(ctx.device), on_round=after_round)
+    assert partial_dir.exists(), "speed.py không gọi on_round sau vòng đầu"
     assert len(written) == len(ctx.targets), f"speed.py ghi {len(written)} file, cần {len(ctx.targets)}"
+    assert not list(out.glob("*.tmp")), "speed.py để sót file tạm"
     names = {p.name for p in written}
+    seen = set()
     for t in ctx.targets:
         name = result_name(ctx.dataset, t)
         assert name in names, f"speed.py không ghi {name}"
-        validate_speed(read_json(ctx.metrics / "speed" / name), t, ctx.dataset, spec)
+        rec = read_json(out / name)
+        validate_speed(rec, t, ctx.dataset, spec)
+        key = (t["model"], t["checkpoint"])
+        assert rec["model_shared"] is (key in seen), (
+            f"{who(t)}: model_shared = {rec['model_shared']}, target cùng checkpoint phải dùng chung mô hình"
+        )
+        seen.add(key)
 
 
 def step_compute(ctx: Ctx) -> None:
@@ -985,6 +1012,16 @@ def step_errors(ctx: Ctx) -> None:
         write_json(bad_path, dict(good, comparison="sampler"))
         expect_error("comparison_tren_VAE", "chỉ dùng cho DDPM")
         write_json(bad_path, good)
+
+    # File speed ghi dở (phiên bị ngắt sau vòng 1): vẫn ghi bảng nhưng phải cảnh báo.
+    vae_speed = ctx.metrics / "speed" / result_name(ctx.dataset, vae)
+    full = read_json(vae_speed)
+    write_json(vae_speed, read_json(ctx.tmp / "speed_partial" / vae_speed.name))
+    result = aggregate(ctx, ctx.tmp / "partial_speed")
+    assert result.returncode == 0, f"File speed ghi dở vẫn phải tổng hợp được:\n{result.stderr}"
+    assert "chưa đo xong" in result.stderr, f"Thiếu cảnh báo speed chưa đo xong:\n{result.stderr}"
+    print("    OK cảnh báo: speed_ghi_do")
+    write_json(vae_speed, full)
 
     # Sau khi hoàn nguyên, bảng phải ghi lại được.
     result = aggregate(ctx, ctx.tmp / "summary_again")
