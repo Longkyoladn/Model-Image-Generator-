@@ -1,6 +1,6 @@
 """Mô hình giả: bản cài mẫu đúng interface, dùng cho scripts/smoke_test_benchmark.py.
 
-KHÔNG dùng cho kết quả báo cáo. File này có hai vai trò:
+KHÔNG dùng cho kết quả báo cáo. File này có ba vai trò:
 
 1. Chạy thử toàn bộ pipeline khi chưa có checkpoint thật (speed.py, flops.py,
    calibrate.py, render_samples.py, aggregate_results.py).
@@ -14,6 +14,12 @@ KHÔNG dùng cho kết quả báo cáo. File này có hai vai trò:
     build_trainer(config, device)         | build_trainer
     lớp kế thừa GenerativeModel           | DummyModel
     lớp kế thừa Trainer                   | DummyTrainer
+
+3. Làm **mô hình sai có chủ đích** (`DEFECTS`): mỗi biến thể cố tình mắc một
+   lỗi hay gặp khi cài mô hình thật (sai shape, quên đổi [-1, 1] về [0, 1], bỏ
+   qua seed, sai tên module...). Smoke test chạy bộ kiểm tra trên từng biến thể
+   và bắt buộc phải bắt được lỗi; nếu không bắt được nghĩa là assert bị lỏng,
+   khi đó mô hình thật mắc lỗi tương tự cũng sẽ lọt qua.
 
 Phần cuối file (`dummy_quality_record`, `dummy_real_baseline`) sinh file
 `kind = "quality"` / `"real_baseline"` đúng schema mục 4.2 bằng các metric
@@ -35,6 +41,30 @@ DATASET_SHAPES = {
     "cifar10": (3, 32, 32),
     "fashion_mnist": (1, 32, 32),
     "celeba": (3, 64, 64),
+}
+
+# Biến thể lỗi: tên -> (mô hình áp dụng, mô tả lỗi, đoạn chữ phải có trong thông báo lỗi).
+# Đoạn chữ thứ ba bảo đảm lỗi bị bắt đúng chỗ, không phải bị bắt nhầm bởi assert khác.
+DEFECTS = {
+    "sai_thu_tu_chieu": ("vae", "sample() trả về (n, H, W, C) thay vì (n, C, H, W)", "shape"),
+    "sai_mien_gia_tri": ("dcgan", "sample() trả về [-1, 1] (quên đổi output tanh về [0, 1])", "cần [0, 1]"),
+    "sai_dtype": ("vae", "sample() trả về uint8 thay vì float", "dtype"),
+    "co_nan": ("vae", "sample() có NaN (ví dụ chia cho 0 khi chuẩn hóa)", "NaN"),
+    "bo_qua_seed": ("dcgan", "sample() không dùng make_generator(seed): cùng seed ra ảnh khác", "cùng seed"),
+    "seed_co_dinh": ("vae", "sample() luôn dùng seed 0: khác seed ra ảnh giống nhau", "khác seed"),
+    "sai_so_anh": ("vae", "sample(n) luôn sinh 2 ảnh, bỏ qua n", "sample(1)"),
+    "sai_image_shape": ("vae", "image_shape khai báo sai so với dataset", "image_shape"),
+    "sai_ten_module_sinh": ("dcgan", "sampling_modules() đặt tên 'net' thay vì 'generator'", "sampling_modules()"),
+    "thieu_module_train": ("dcgan", "training_modules() thiếu discriminator", "training_modules()"),
+    "sai_forward_passes": ("ddpm", "forward_passes_per_image() trả về 1 thay vì số step", "forward_passes_per_image"),
+    "example_inputs_batch_2": ("vae", "example_inputs() dùng batch 2 thay vì 1", "batch = 1"),
+    "example_inputs_thieu": ("vae", "example_inputs() thiếu input của encoder", "example_inputs()"),
+    "sai_device": ("vae", "sample() trả ảnh về CPU khi mô hình nằm trên GPU (chỉ thử được khi có GPU)", "nằm trên"),
+}
+TRAINER_DEFECTS = {
+    "trainer_sai_image_shape": ("Trainer.image_shape khác dataset", "image_shape"),
+    "trainer_sai_precision": ("Trainer.precision = 'half' thay vì 'fp32'/'fp16'", "precision"),
+    "trainer_sai_batch": ("Trainer.batch_size = 0", "batch_size"),
 }
 
 
@@ -82,20 +112,34 @@ def _build_modules(name: str, image_shape: tuple[int, int, int], width: int = 32
 # --------------------------------------------------------------------------
 
 class DummyModel(GenerativeModel):
-    def __init__(self, name: str, image_shape: tuple[int, int, int], default_steps: int = 20) -> None:
+    """`defect = None` là mô hình đúng; tên trong DEFECTS là mô hình sai có chủ đích."""
+
+    _ROLE = {"vae": "decoder", "dcgan": "generator", "ddpm": "unet"}
+
+    def __init__(self, name: str, image_shape: tuple[int, int, int], default_steps: int = 20,
+                 defect: str | None = None) -> None:
+        if defect is not None and defect not in DEFECTS:
+            raise ValueError(f"defect không hợp lệ: {defect!r}")
         self.name = name                         # "vae" | "dcgan" | "ddpm"
         self.image_shape = tuple(image_shape)    # (C, H, W)
         self.default_steps = default_steps
+        self.defect = defect
+        self._true_shape = self.image_shape      # shape mà module được dựng
         self.modules = _build_modules(name, self.image_shape)
+        if defect == "sai_image_shape":
+            c, h, w = self.image_shape
+            self.image_shape = (1 if c == 3 else 3, h, w)
 
     # Bắt buộc: module tham gia train, tên theo TRAIN_ROLES.
     def training_modules(self) -> dict[str, nn.Module]:
+        if self.defect == "thieu_module_train":
+            return self.sampling_modules()
         return dict(self.modules)
 
     # Bắt buộc: chỉ module dùng khi sinh, tên theo SAMPLING_ROLE.
     def sampling_modules(self) -> dict[str, nn.Module]:
-        role = {"vae": "decoder", "dcgan": "generator", "ddpm": "unet"}[self.name]
-        return {role: self.modules[role]}
+        role = self._ROLE[self.name]
+        return {"net" if self.defect == "sai_ten_module_sinh" else role: self.modules[role]}
 
     # Chuyển cả module train (encoder/discriminator) chứ không chỉ module sinh.
     def to(self, device):
@@ -105,36 +149,70 @@ class DummyModel(GenerativeModel):
 
     # DDPM: số forward mỗi ảnh = số sampling step.
     def forward_passes_per_image(self, **kwargs) -> int:
+        if self.defect == "sai_forward_passes":
+            return 1
         return int(kwargs.get("steps", self.default_steps)) if self.name == "ddpm" else 1
 
     # Input batch = 1 cho mỗi module trong training_modules(), nằm trên device.
     def example_inputs(self) -> dict[str, tuple]:
         d = self.device
-        img = torch.zeros(1, *self.image_shape, device=d)
-        z = torch.zeros(1, LATENT_DIM, device=d)
+        b = 2 if self.defect == "example_inputs_batch_2" else 1
+        img = torch.zeros(b, *self._true_shape, device=d)
+        z = torch.zeros(b, LATENT_DIM, device=d)
         if self.name == "vae":
-            return {"encoder": (img,), "decoder": (z,)}
-        if self.name == "dcgan":
-            return {"generator": (z,), "discriminator": (img,)}
-        return {"unet": (img, torch.zeros(1, dtype=torch.long, device=d))}
+            inputs = {"encoder": (img,), "decoder": (z,)}
+        elif self.name == "dcgan":
+            inputs = {"generator": (z,), "discriminator": (img,)}
+        else:
+            inputs = {"unet": (img, torch.zeros(b, dtype=torch.long, device=d))}
+        if self.defect == "example_inputs_thieu":
+            inputs.pop(next(iter(inputs)))
+        return inputs
 
     # Bắt buộc: (n, C, H, W), float, trong [0, 1], trên device; cùng seed → cùng ảnh.
     @torch.no_grad()
     def sample(self, n: int, seed: int | None = None, **kwargs) -> torch.Tensor:
-        gen = self.make_generator(seed)
+        d = self.defect
+        if d == "bo_qua_seed":
+            gen = None                      # Lỗi: dùng RNG toàn cục.
+        elif d == "seed_co_dinh":
+            gen = self.make_generator(0)    # Lỗi: bỏ qua seed truyền vào.
+        else:
+            gen = self.make_generator(seed)
+        if d == "sai_so_anh":
+            n = 2                           # Lỗi: bỏ qua n.
+        shape = self._true_shape
         if self.name == "ddpm":
             sampler = kwargs.get("sampler", "ddpm")
             if sampler not in ("ddpm", "ddim"):
                 raise ValueError(f"sampler phải là ddpm hoặc ddim, nhận {sampler!r}")
             steps = int(kwargs.get("steps", self.default_steps))
-            x = torch.randn(n, *self.image_shape, generator=gen, device=self.device)
+            x = torch.randn(n, *shape, generator=gen, device=self.device)
             t = torch.zeros(n, dtype=torch.long, device=self.device)
             for _ in range(steps):
                 x = x - 0.1 * self.modules["unet"](x, t)
-            return torch.sigmoid(x)
-        z = torch.randn(n, LATENT_DIM, generator=gen, device=self.device)
-        net = self.modules["decoder" if self.name == "vae" else "generator"]
-        return torch.sigmoid(net(z)).view(n, *self.image_shape)
+            x = torch.sigmoid(x)
+        else:
+            z = torch.randn(n, LATENT_DIM, generator=gen, device=self.device)
+            net = self.modules["decoder" if self.name == "vae" else "generator"]
+            x = torch.sigmoid(net(z)).view(n, *shape)
+        return self._apply_output_defect(x)
+
+    def _apply_output_defect(self, x: torch.Tensor) -> torch.Tensor:
+        d = self.defect
+        if d == "sai_thu_tu_chieu":
+            return x.permute(0, 2, 3, 1)
+        if d == "sai_mien_gia_tri":
+            return x * 2 - 1
+        if d == "sai_dtype":
+            return (x * 255).round().to(torch.uint8)
+        if d == "co_nan":
+            x = x.clone()
+            x.view(-1)[0] = float("nan")
+            return x
+        if d == "sai_device":
+            return x.cpu()
+        return x
 
 
 # --------------------------------------------------------------------------
@@ -170,12 +248,21 @@ def load_model(checkpoint: str, device: str) -> DummyModel:
 class DummyTrainer(Trainer):
     """Một bước train giả: forward + backward + optimizer step qua mọi module."""
 
-    def __init__(self, name: str, image_shape, batch_size: int, device: str) -> None:
+    def __init__(self, name: str, image_shape, batch_size: int, device: str, defect: str | None = None) -> None:
+        if defect is not None and defect not in TRAINER_DEFECTS:
+            raise ValueError(f"defect không hợp lệ: {defect!r}")
         self.model = DummyModel(name, image_shape).to(device)
         self.batch_size = batch_size
         self.image_shape = tuple(image_shape)
         self.precision = "fp32"
         self.num_gpus = 1
+        if defect == "trainer_sai_image_shape":
+            c, h, w = self.image_shape
+            self.image_shape = (1 if c == 3 else 3, h, w)
+        elif defect == "trainer_sai_precision":
+            self.precision = "half"
+        elif defect == "trainer_sai_batch":
+            self.batch_size = 0
         params = [p for m in self.model.modules.values() for p in m.parameters()]
         self.opt = torch.optim.Adam(params, lr=1e-4)
 
@@ -199,14 +286,15 @@ class DummyTrainer(Trainer):
 
 
 def build_trainer(config: str, device: str) -> DummyTrainer:
-    """`config` của mô hình giả: "<tên>:<batch_size>[:<dataset>]", ví dụ "ddpm:16:cifar10".
+    """`config` của mô hình giả: "<tên>:<batch_size>[:<dataset>[:<defect>]]", ví dụ "ddpm:16:cifar10".
 
     Mô hình thật nhận đường dẫn file YAML trong configs/<model>/<dataset>/.
     """
     parts = config.split(":")
     name, batch = parts[0], int(parts[1])
     shape = DATASET_SHAPES[parts[2]] if len(parts) > 2 else (3, 32, 32)
-    return DummyTrainer(name, shape, batch, device)
+    defect = parts[3] if len(parts) > 3 else None
+    return DummyTrainer(name, shape, batch, device, defect)
 
 
 # --------------------------------------------------------------------------

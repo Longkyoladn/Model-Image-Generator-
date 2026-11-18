@@ -573,7 +573,7 @@ Ba file dùng cho bước này:
 
 | File | Vai trò |
 |---|---|
-| `models/dummy.py` | Mô hình giả và bản cài mẫu: `load_model`, `build_trainer`, lớp `GenerativeModel`, lớp `Trainer`, cùng cấu trúc file `quality`/`real_baseline` giả |
+| `models/dummy.py` | Mô hình giả và bản cài mẫu (`load_model`, `build_trainer`, `GenerativeModel`, `Trainer`); các biến thể lỗi có chủ đích (`DEFECTS`, `TRAINER_DEFECTS`) để chứng minh bộ kiểm tra bắt được lỗi; file `quality`/`real_baseline` giả đúng cấu trúc |
 | `configs/eval/speed_example.yaml` | Spec mẫu: dataset, precision, batch size, danh sách target (checkpoint, `run_name`, `label`, `sample_kwargs`, `trainer_config`, `quality`, `run_metadata`) |
 | `scripts/smoke_test_benchmark.py` | Chạy từng bước, dùng `assert` để kiểm tra cấu trúc output; sai ở đâu dừng ở đó và in lý do |
 
@@ -592,15 +592,16 @@ Các bước smoke test kiểm tra:
 
 1. **Spec**: khóa bắt buộc; DDPM có `sampler`, `steps` và `label`.
 2. **Interface**: `load_model` trả về `GenerativeModel`, tên module đúng vai trò, `image_shape` đúng dataset (mục 2.1), `sample()` trả về tensor float `(n, C, H, W)` trong [0, 1], cùng device (kể cả chỉ số GPU), cùng seed cho cùng ảnh, `forward_passes_per_image` và `example_inputs()` đúng.
-3. **Tốc độ**: `evaluation/speed.py` ghi file `speed` đúng khóa ghép và đủ trường.
-4. **MACs/FLOPs**: file `compute` đúng công thức mục 2.5; fvcore và thop cho cùng MACs.
-5. **Hiệu chuẩn**: `build_trainer` trả về `Trainer` đúng `image_shape`; file `calibration` đủ trường.
-6. **Ảnh mẫu**: `scripts/render_samples.py` ghi đúng đường dẫn mục 4.2.
-7. **FID/diversity**: ảnh lưu PNG uint8 = `round(clamp(x) × 255)` đúng độ phân giải; `configs/eval/fid.yaml` đúng mục 2.6; file `quality` và `real_baseline` đủ khóa, đúng tên cache `<dataset>_<split>_<resolution>`, metric trong miền hợp lệ.
-8. **Metadata run**: file `run` đủ trường mục 4.3, run `full` có `curve` tăng dần.
-9. **Tổng hợp** và 10. **Bắt lỗi** (chỉ với mô hình giả): `aggregate_results.py` ra bảng đúng và từ chối dữ liệu không công bằng.
+3. **Mô hình sai**: chạy kiểm tra của bước 2 và kiểm tra `Trainer` trên từng biến thể lỗi trong `models/dummy.py` (sai thứ tự chiều, quên đổi [-1, 1] về [0, 1], uint8, NaN, bỏ qua seed, bỏ qua `n`, sai tên module, thiếu discriminator, sai `forward_passes_per_image`, `example_inputs()` sai batch, Trainer sai shape/precision/batch...). Mỗi lỗi phải bị bắt đúng chỗ; nếu không, bộ kiểm tra bị lỏng và lỗi tương tự của mô hình thật cũng sẽ lọt qua.
+4. **Tốc độ**: `evaluation/speed.py` ghi file `speed` đúng khóa ghép và đủ trường.
+5. **MACs/FLOPs**: file `compute` đúng công thức mục 2.5; fvcore và thop cho cùng MACs.
+6. **Hiệu chuẩn**: `build_trainer` trả về `Trainer` đúng `batch_size`, `image_shape`, `precision`, `num_gpus` và `train_step` chạy được; file `calibration` đủ trường.
+7. **Ảnh mẫu**: `scripts/render_samples.py` ghi đúng đường dẫn mục 4.2.
+8. **FID/diversity**: ảnh lưu PNG uint8 = `round(clamp(x) × 255)` đúng độ phân giải; `configs/eval/fid.yaml` đúng mục 2.6; file `quality` và `real_baseline` đủ khóa, đúng tên cache `<dataset>_<split>_<resolution>`, metric trong miền hợp lệ.
+9. **Metadata run**: file `run` đủ trường mục 4.3, run `full` có `curve` tăng dần.
+10. **Tổng hợp** và 11. **Bắt lỗi** (chỉ với mô hình giả): `aggregate_results.py` ra bảng đúng và từ chối dữ liệu không công bằng.
 
-`evaluation/fid.py`, `evaluation/diversity.py` và `configs/eval/fid.yaml` chưa có thì bước 7 dùng metric giả trong `models/dummy.py` để thử cấu trúc và báo trong mục "Chưa kiểm tra được". Khi Quân hoàn thành hai file này, `fid.yaml` phải có các khóa trong `FID_CONFIG_EXPECTED` của smoke test (đổi tên khóa thì sửa dict này cùng lúc), và mỗi target thêm `quality: <file quality>` để smoke test kiểm tra file thật.
+`evaluation/fid.py`, `evaluation/diversity.py` và `configs/eval/fid.yaml` chưa có thì bước 8 dùng metric giả trong `models/dummy.py` để thử cấu trúc và báo trong mục "Chưa kiểm tra được". Khi Quân hoàn thành hai file này, `fid.yaml` phải có các khóa trong `FID_CONFIG_EXPECTED` của smoke test (đổi tên khóa thì sửa dict này cùng lúc), và mỗi target thêm `quality: <file quality>` để smoke test kiểm tra file thật.
 
 Không chạy smoke test bằng `python -O` (cờ này tắt `assert`).
 

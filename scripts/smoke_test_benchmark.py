@@ -16,17 +16,19 @@ và in lý do. Mọi file được ghi vào thư mục tạm, không ghi vào ou
 Các bước:
      1. Spec            khóa bắt buộc của file YAML.
      2. Interface       load_model, tên module, sample() đúng shape/dtype/[0, 1]/device/seed.
-     3. Tốc độ          evaluation/speed.py và cấu trúc file kind = "speed".
-     4. MACs/FLOPs      evaluation/flops.py và cấu trúc file kind = "compute".
-     5. Hiệu chuẩn      build_trainer, evaluation/calibrate.py, file kind = "calibration".
-     6. Ảnh mẫu         scripts/render_samples.py ghi đúng đường dẫn.
-     7. FID/diversity   ảnh PNG uint8 theo mục 2.6, configs/eval/fid.yaml (nếu có),
+     3. Mô hình sai     chạy kiểm tra bước 2 và Trainer trên các biến thể lỗi của
+                        models/dummy.py (DEFECTS, TRAINER_DEFECTS); mỗi lỗi phải bị bắt.
+     4. Tốc độ          evaluation/speed.py và cấu trúc file kind = "speed".
+     5. MACs/FLOPs      evaluation/flops.py và cấu trúc file kind = "compute".
+     6. Hiệu chuẩn      build_trainer, evaluation/calibrate.py, file kind = "calibration".
+     7. Ảnh mẫu         scripts/render_samples.py ghi đúng đường dẫn.
+     8. FID/diversity   ảnh PNG uint8 theo mục 2.6, configs/eval/fid.yaml (nếu có),
                         file kind = "quality" và "real_baseline".
-     8. Metadata run    file kind = "run" theo mục 4.3.
-     9. Tổng hợp        aggregate_results.py ghi bảng đúng (chỉ với mô hình giả).
-    10. Bắt lỗi         aggregate_results.py từ chối dữ liệu không công bằng (chỉ với mô hình giả).
+     9. Metadata run    file kind = "run" theo mục 4.3.
+    10. Tổng hợp        aggregate_results.py ghi bảng đúng (chỉ với mô hình giả).
+    11. Bắt lỗi         aggregate_results.py từ chối dữ liệu không công bằng (chỉ với mô hình giả).
 
-Với mô hình thật, bước 7 và 8 kiểm tra file trong `quality` / `run_metadata`
+Với mô hình thật, bước 8 và 9 kiểm tra file trong `quality` / `run_metadata`
 của target nếu có; chưa có thì báo BỎ QUA. Không chạy bằng `python -O`
 (cờ này tắt assert).
 
@@ -67,6 +69,10 @@ from evaluation.calibrate import calibrate  # noqa: E402
 from evaluation.speed import run_benchmark  # noqa: E402
 from models.dummy import (  # noqa: E402
     DATASET_SHAPES,
+    DEFECTS,
+    TRAINER_DEFECTS,
+    DummyModel,
+    build_trainer,
     dummy_quality_record,
     dummy_real_baseline,
     save_dummy_checkpoint,
@@ -76,6 +82,7 @@ from models.interface import (  # noqa: E402
     TRAIN_ROLES,
     GenerativeModel,
     Trainer,
+    ContractError,
     check_contract,
     check_roles,
     load_model,
@@ -279,6 +286,20 @@ def check_model(model: GenerativeModel, t: dict, dataset: str, device: torch.dev
                 assert a.device == model.device, f"{where}: example_inputs()[{name!r}] nằm trên {a.device}"
         with torch.inference_mode():
             modules[name](*args)  # Phải forward được.
+
+
+def check_trainer(trainer: Trainer, t: dict, dataset: str, device: torch.device) -> None:
+    """Trainer mục 4.1: thuộc tính đúng kiểu và train_step chạy được trên batch đúng shape."""
+    where = f"trainer {t['model']} ({t['trainer_config']})"
+    assert isinstance(trainer, Trainer), f"{where}: build_trainer phải trả về Trainer"
+    assert isinstance(trainer.batch_size, int) and trainer.batch_size > 0, f"{where}: batch_size = {trainer.batch_size!r}"
+    expected = DATASET_SHAPES[dataset]
+    assert tuple(trainer.image_shape) == expected, (
+        f"{where}: image_shape = {tuple(trainer.image_shape)}, dataset {dataset} cần {expected}"
+    )
+    assert trainer.precision in ("fp32", "fp16"), f"{where}: precision = {trainer.precision!r}, cần fp32 hoặc fp16"
+    assert isinstance(trainer.num_gpus, int) and trainer.num_gpus >= 1, f"{where}: num_gpus = {trainer.num_gpus!r}"
+    trainer.train_step(torch.rand(trainer.batch_size, *expected, device=device) * 2 - 1)
 
 
 def validate_speed(rec: dict, t: dict, dataset: str, spec: dict) -> None:
@@ -520,6 +541,51 @@ def step_interface(ctx: Ctx) -> None:
         print(f"    OK {who(t)}")
 
 
+def step_defects(ctx: Ctx) -> None:
+    """Bộ kiểm tra phải bắt được từng lỗi cài sẵn trong models/dummy.py.
+
+    Bước này luôn chạy (kể cả với spec mô hình thật): nếu một assert bị viết lỏng,
+    lỗi tương ứng của mô hình thật cũng sẽ lọt qua bước 2.
+    """
+    shape = DATASET_SHAPES[ctx.dataset]
+    missed = []
+
+    def expect_caught(name: str, needle: str, fn) -> None:
+        try:
+            fn()
+        except (AssertionError, ContractError) as err:
+            if needle not in str(err):
+                missed.append(f"{name}: bị bắt nhưng sai chỗ, cần thông báo chứa {needle!r}, nhận: {err}")
+            else:
+                print(f"    OK {name}: {str(err).splitlines()[0][:110]}")
+            return
+        missed.append(f"{name}: KHÔNG bị bắt")
+
+    for name, (model_name, desc, needle) in DEFECTS.items():
+        if name == "sai_device" and ctx.device.type != "cuda":
+            ctx.skipped.append(f"Biến thể lỗi {name}: cần GPU")
+            continue
+        kw = {"sampler": "ddim", "steps": 5} if model_name == "ddpm" else {}
+        t = {"model": model_name, "run_name": f"loi_{name}", "label": "ddim5" if kw else "", "sample_kwargs": kw}
+        model = DummyModel(model_name, shape, defect=name).to(ctx.device)
+        expect_caught(name, needle, lambda: check_model(model, t, ctx.dataset, ctx.device))
+
+    for name, (desc, needle) in TRAINER_DEFECTS.items():
+        cfg = f"vae:4:{ctx.dataset}:{name}"
+        t = {"model": "vae", "trainer_config": cfg}
+        expect_caught(name, needle, lambda: check_trainer(build_trainer(cfg, str(ctx.device)), t, ctx.dataset, ctx.device))
+
+    # Mô hình đúng phải qua được đúng các kiểm tra đó (không báo lỗi nhầm).
+    for model_name in MODELS:
+        kw = {"sampler": "ddim", "steps": 5} if model_name == "ddpm" else {}
+        t = {"model": model_name, "run_name": "dung", "label": "ddim5" if kw else "", "sample_kwargs": kw,
+             "trainer_config": f"{model_name}:4:{ctx.dataset}"}
+        check_model(DummyModel(model_name, shape).to(ctx.device), t, ctx.dataset, ctx.device)
+        check_trainer(build_trainer(t["trainer_config"], str(ctx.device)), t, ctx.dataset, ctx.device)
+
+    assert not missed, "Bộ kiểm tra bị lỏng:\n  " + "\n  ".join(missed)
+
+
 def step_speed(ctx: Ctx) -> None:
     spec = {
         "dataset": ctx.dataset,
@@ -597,12 +663,7 @@ def step_calibration(ctx: Ctx) -> None:
         seen.add((t["model"], cfg))
         rec = calibrate(t["model"], cfg, str(ctx.device), warmup=1, steps=3, module=t["loader_module"])
         rec["dataset"] = ctx.dataset
-        trainer_shape = tuple(DATASET_SHAPES[ctx.dataset])
-        trainer = load_trainer(t["model"], cfg, ctx.device, module=t["loader_module"])
-        assert isinstance(trainer, Trainer), f"{who(t)}: build_trainer phải trả về Trainer"
-        assert tuple(trainer.image_shape) == trainer_shape, (
-            f"{who(t)}: Trainer.image_shape = {tuple(trainer.image_shape)}, dataset cần {trainer_shape}"
-        )
+        check_trainer(load_trainer(t["model"], cfg, ctx.device, module=t["loader_module"]), t, ctx.dataset, ctx.device)
         validate_calibration(rec, t, ctx.dataset)
         path = write_json(ctx.metrics / "calibration" / f"{ctx.dataset}__{t['model']}__{rec['device']}.json", rec)
         ctx.calibration[t["model"]] = rec
@@ -846,6 +907,7 @@ def step_errors(ctx: Ctx) -> None:
 STEPS = [
     ("Spec", step_spec, False),
     ("Interface mô hình", step_interface, False),
+    ("Bộ kiểm tra bắt được mô hình sai", step_defects, False),
     ("Tốc độ sinh (speed.py)", step_speed, False),
     ("MACs/FLOPs (flops.py)", step_compute, False),
     ("Hiệu chuẩn (calibrate.py)", step_calibration, False),
