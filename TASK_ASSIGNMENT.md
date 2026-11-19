@@ -61,7 +61,7 @@ Cấu hình khởi điểm:
 | Fashion-MNIST | 32×32 (khuyến nghị) | 1 | Pad 2 pixel từ 28×28 để U-Net/DCGAN downsample chẵn; ghi rõ trong config |
 | CIFAR-10 | 32×32 | 3 | Chỉ dùng horizontal flip nếu có augmentation |
 
-Nếu thay đổi kích thước, nhóm phải ghi lại trong config và dùng cùng cấu hình dữ liệu cho cả ba mô hình. Ảnh thật dùng làm tham chiếu khi đánh giá cũng phải đi qua đúng preprocessing này (mục 2.6).
+Nếu thay đổi kích thước, cần phải ghi lại trong config và dùng cùng cấu hình dữ liệu cho cả ba mô hình. Ảnh thật dùng làm tham chiếu khi đánh giá cũng phải đi qua đúng preprocessing này (mục 2.6).
 
 #### Split
 
@@ -79,10 +79,9 @@ Nếu thay đổi kích thước, nhóm phải ghi lại trong config và dùng 
 ### 2.2. Lưu trữ và truy cập dữ liệu
 
 - Không commit dataset lên Git.
-- Dữ liệu được lưu trên Google Drive, Kaggle Dataset hoặc kho lưu trữ nhóm thống nhất.
-- Huấn luyện trên Google Colab hoặc Kaggle, không bắt buộc kéo dữ liệu về máy cá nhân.
+- Dữ liệu được lưu trên Google Drive, Kaggle Dataset
+- Huấn luyện trên Google Colab hoặc Kaggle(nên sử dụng mô hình T4 để train -> có thể tính thời gian so sánh 3 mô hình đúng nhất), không bắt buộc kéo dữ liệu về máy cá nhân.
 - Không hard-code đường dẫn Drive cá nhân; đường dẫn phải đọc từ config hoặc biến môi trường.
-- Không commit token, API key, `kaggle.json` hoặc thông tin tài khoản.
 - Hướng dẫn và nguồn của cả ba dataset được ghi trong `datasets/README.md`.
 
 ### 2.3. Quy trình chọn config
@@ -109,7 +108,7 @@ Nếu thay đổi kích thước, nhóm phải ghi lại trong config và dùng 
 
 Ngân sách:
 
-- Mỗi cặp `mô hình × dataset` có giới hạn tổng giờ GPU quy đổi (mục 2.5), nhóm chốt con số trước khi bắt đầu giai đoạn 1.
+- Mỗi cặp `mô hình × dataset` có giới hạn tổng giờ GPU quy đổi (mục 2.5)
 - Bảng kết quả phải ghi chi phí thực tế đã dùng.
 
 Siêu tham số có thể thay đổi:
@@ -215,7 +214,7 @@ Ví dụ: P100 nhanh hơn T4 1,3 lần với config này thì 2 giờ trên P100
 
 - Nếu train trên nhiều GPU cùng lúc (Kaggle T4×2), hiệu chuẩn cả cụm như một phần cứng h.
 - "Giờ train thực tế" chỉ tính thời gian các training step (log cộng dồn trong training loop), không tính evaluation, lưu checkpoint hay thời gian Colab bị ngắt. Wall-clock tổng được báo riêng.
-- Đo throughput bằng `evaluation/calibrate.py`; mỗi lần đo ghi một file `kind = "calibration"` (log hiệu chuẩn). Metadata của run ghi giờ train theo từng phần cứng (`hardware`, mục 4.3). `scripts/aggregate_results.py` tự tính `k_h` và Thời gian - T4 từ hai nguồn này, không dùng số điền tay.
+- Đo throughput bằng `evaluation/calibrate.py`; mỗi lần đo ghi một file `kind = "calibration"` (log hiệu chuẩn). Metadata của run ghi giờ train theo từng phần cứng (`hardware`, mục 4.3). `scripts/aggregate_results.py` tự tính `k_h` và Thời gian - T4 từ hai nguồn này; metadata run có ghi sẵn `gpu_hours_t4` thì bị báo lỗi (mục 4.3). Đường dẫn config được đưa về dạng `configs/...` trước khi ghép, nên run train trên Kaggle/Colab (đường dẫn tuyệt đối) vẫn ghép được với file calibration đo ở máy khác.
 
 Tốc độ sinh không dùng công thức quy đổi; đo trực tiếp trên T4 như mục 2.4.
 
@@ -271,10 +270,11 @@ Mỗi mô hình sinh **một bộ 50.000 ảnh** với seed cố định (cùng 
 
 #### Sampler của DDPM
 
-Sinh 50k ảnh bằng DDPM 1000 step rất tốn. Ước lượng sơ bộ: U-Net cỡ 35M tham số trên CIFAR-10 cần khoảng chục giờ T4; CelebA 64×64 gấp khoảng 4 lần. Long đo thời gian sinh 100 ảnh bằng `speed.py` rồi ngoại suy trước khi chốt. Đề xuất:
+Sinh 50k ảnh bằng DDPM 1000 step rất tốn. Ước lượng sơ bộ: U-Net cỡ 35M tham số trên CIFAR-10 cần khoảng chục giờ T4; CelebA 64×64 gấp khoảng 4 lần. Tốc độ sinh chỉ phụ thuộc kiến trúc và số step, không phụ thuộc trọng số, nên Long đo thời gian sinh 100 ảnh bằng `speed.py` ngay khi có U-Net (chưa cần train) rồi ngoại suy trước khi chốt. Đã chốt:
 
-- Bảng chính: DDIM 100 step, η = 0, dùng cho FID-50k.
-- Bổ sung một dòng DDPM 1000 step với FID-10k để thể hiện đánh đổi giữa chất lượng và tốc độ.
+- **Bảng chính: DDIM 100 step, η = 0**, dùng cho bộ 50k ảnh (FID_train-50k, FID_test-10k mean ± std, KID, PRDC, LPIPS) và cho KID khi tuning. Trước giai đoạn 1, đo nhanh KID-5k validation của DDIM 100 so với DDIM 200 ở một checkpoint; nếu 100 kém rõ (chênh lớn hơn std của KID) thì xem lại.
+- **Dòng phụ: DDPM 500 step** (respace lịch nhiễu từ T = 1000 theo Improved DDPM), sinh **10k ảnh** với 10k seed đầu của danh sách seed chung. Dòng phụ **không** vào bảng chính: file `quality` ghi `"comparison": "sampler"` và chỉ so với 10k ảnh đầu của bộ DDIM 100 trong bảng "Đánh đổi sampler của DDPM" (FID_train-10k, KID_test, GFLOPs/ảnh, latency, throughput). Không so FID-10k với FID-50k.
+- Dòng DDPM chính phải ghi thêm `metrics.fid_train_10k` (FID trên 10k ảnh đầu) để có số so với dòng phụ.
 - Ghi rõ sampler và số step ở mọi bảng có DDPM.
 
 #### Kiểm tra học thuộc
@@ -396,7 +396,7 @@ InceptionV3 được train trên ảnh màu tự nhiên nên feature cho ảnh q
 - `models/interface.py`, `evaluation/speed.py`, `scripts/aggregate_results.py` (bảng, biểu đồ, ảnh ghép).
 - `evaluation/flops.py` (tham số, MACs/FLOPs) và `evaluation/calibrate.py` (hiệu chuẩn phần cứng).
 - `scripts/render_samples.py` (lưới ảnh mẫu không chọn lọc).
-- Chạy thử toàn bộ bằng `python scripts/smoke_test_benchmark.py`.
+- `models/dummy.py`, `configs/eval/speed_example.yaml` và `scripts/smoke_test_benchmark.py` (smoke test bắt buộc, mục 4.4).
 - Bảng config DDPM đã thử và config tốt nhất cho từng dataset.
 - Ba bảng kết quả chính, biểu đồ, ảnh mẫu và báo cáo tổng hợp.
 
@@ -464,7 +464,7 @@ images = model.sample(64, seed=0, sampler="ddim", steps=100)
 
 `scripts/sample_<model>.py` nên gọi chính `load_model` và `sample` này để ảnh dùng tính FID và ảnh dùng đo tốc độ đi qua cùng một đường code.
 
-`models/dummy.py` là mô hình giả, chỉ để chạy thử pipeline bằng `python scripts/smoke_test_benchmark.py`.
+`models/dummy.py` là mô hình giả, vừa để chạy thử pipeline, vừa là bản cài mẫu đúng interface: package thật cài theo cùng cấu trúc (mục 4.4).
 
 ### 4.2. File kết quả
 
@@ -478,6 +478,8 @@ Mọi file kết quả là JSON có trường `kind` và các khóa ghép `datas
 | `compute` | `evaluation/flops.py` | Tham số khi sinh và khi train, MACs từng module, GMACs/GFLOPs mỗi ảnh, FLOPs train mỗi ảnh, công cụ và phiên bản |
 | `calibration` | `evaluation/calibrate.py` | Throughput train của một config trên một phần cứng |
 | `real_baseline` | `evaluation/fid.py` | Số liệu thật-với-thật của dataset (`fid_floor`, `lpips_real`) |
+
+**Mọi file JSON kết quả chỉ được sinh ra khi chạy script, không viết tay và không sửa tay số liệu trong file.** Số sai thì sửa code hoặc config rồi chạy lại script. Script tổng hợp chỉ đọc đúng định dạng hiện tại: không nhận `kind` cũ (ví dụ `"reference"` thay cho `"real_baseline"`), và file `speed` thiếu trường `complete` bị coi là chưa đo xong.
 
 File `quality`:
 
@@ -495,8 +497,22 @@ File `quality`:
     "fid_train_50k": 0.0, "fid_test_10k_mean": 0.0, "fid_test_10k_std": 0.0,
     "kid_test_mean": 0.0, "kid_test_std": 0.0,
     "precision": 0.0, "recall": 0.0, "density": 0.0, "coverage": 0.0,
-    "lpips_diversity": 0.0
+    "lpips_diversity": 0.0,
+    "fid_train_10k": 0.0
   }
+}
+```
+
+`fid_train_10k` chỉ bắt buộc với dòng DDPM chính (dùng cho bảng so sánh sampler). Dòng phụ so sánh sampler (mục 2.6) có dạng:
+
+```json
+{
+  "kind": "quality",
+  "model": "ddpm", "dataset": "cifar10", "run_name": "ddpm_base", "label": "ddpm500",
+  "sampler": "ddpm", "sampling_steps": 500,
+  "comparison": "sampler",
+  "eval": { "...": "giống hệt dòng chính, trừ", "num_gen": 10000 },
+  "metrics": {"fid_train_10k": 0.0, "kid_test_mean": 0.0, "kid_test_std": 0.0}
 }
 ```
 
@@ -515,13 +531,18 @@ Dùng hàm `save_grid` trong `scripts/render_samples.py` để mọi lưới ả
 
 Script tổng hợp từ chối ghi bảng nếu trong cùng một dataset:
 
-- Khối `eval` của các mô hình khác nhau ở bất kỳ trường nào.
-- Tốc độ được đo trên GPU, phiên bản PyTorch, precision hoặc batch size khác nhau, hoặc không đo trên T4.
+- Khối `eval` của các dòng chính khác nhau ở bất kỳ trường nào.
+- Dòng phụ so sánh sampler có `eval.num_gen` khác 10.000, có trường `eval` khác (ngoài `num_gen`) so với bảng chính, hoặc thiếu `fid_train_10k`/`kid_test_*`.
+- `comparison` khác `"sampler"`, hoặc đặt cho VAE/DCGAN.
+- Tốc độ được đo trên GPU, phiên bản PyTorch, precision hoặc batch size khác nhau (kể cả dòng phụ), hoặc không đo trên T4.
 - MACs được đo bằng công cụ hoặc phiên bản khác nhau.
-- Không quy đổi được giờ train về T4 vì thiếu file calibration.
+- Không quy đổi được giờ train về T4 vì thiếu file calibration, file calibration thiếu `dataset`, hoặc trùng file calibration/metadata run.
 - Một dòng DDPM thiếu sampler và số step.
+- Metadata run có trường do script tổng hợp tự tính (`params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4`), dù giá trị đúng hay sai (mục 4.3).
 
-Ngoài bảng chất lượng và bảng chi phí, script vẽ hai biểu đồ cho mỗi dataset (KID validation theo Thời gian - T4 và theo FLOPs train, từ trường `curve` của metadata) và ghép ảnh mẫu, interpolation, nearest-neighbor của các mô hình.
+Quên ghi `"comparison": "sampler"` ở dòng DDPM 500 thì dòng này rơi vào bảng chính và bị từ chối vì khác `num_gen`.
+
+Ngoài bảng chất lượng và bảng chi phí (chỉ gồm dòng chính), script ghi bảng "Đánh đổi sampler của DDPM" nếu có dòng phụ, vẽ hai biểu đồ cho mỗi dataset (KID validation theo Thời gian - T4 và theo FLOPs train, từ trường `curve` của metadata) và ghép ảnh mẫu, interpolation, nearest-neighbor của các mô hình.
 
 Bảng chính chỉ gồm các run có `stage = "full"`; run `overfit` và `tuning` vào bảng "Các config đã thử".
 
@@ -563,7 +584,48 @@ Mỗi run phải xuất metadata tối thiểu:
 
 - `hardware[].device` ghi đúng "device key" mà `evaluation/calibrate.py` in ra (ví dụ `"Tesla T4"`, `"Tesla T4 x2"`). `train_hours` là giờ train thực tế trên phần cứng đó (mục 2.5).
 - `curve` là KID validation tại các checkpoint của lần train đầy đủ (giai đoạn 2). `hardware_hours` là giờ train cộng dồn tới checkpoint đó, theo từng phần cứng.
-- Không cần điền `params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4`: script tổng hợp lấy tham số và MACs từ file `compute`, tính FLOPs train = `train_steps` × `batch_size` × FLOPs train mỗi ảnh, và tính Thời gian - T4 từ `hardware` cùng các file `calibration`. Nếu vẫn điền tay mà lệch với giá trị tính được, script cảnh báo và dùng giá trị tính được.
+- **Không được ghi** `params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4` vào metadata: script tổng hợp lấy tham số và MACs từ file `compute`, tính FLOPs train = `train_steps` × `batch_size` × FLOPs train mỗi ảnh, và tính Thời gian - T4 từ `hardware` cùng các file `calibration`. Metadata có một trong các trường này thì script báo lỗi và không ghi bảng. Thiếu file `compute` thì các cột tham số, MACs/FLOPs và FLOPs train để trống (không lấy từ metadata).
+- File `calibration` phải có `dataset`; script tổng hợp ghép calibration với run theo `(dataset, model, config)`. Mỗi `(model, run_name)` của một dataset chỉ có **một** file metadata; trùng thì script báo lỗi.
+
+### 4.4. Smoke test bắt buộc trước khi chạy mô hình thật
+
+**Quy tắc:** trước khi train đầy đủ, sinh bộ 50k ảnh, tính FID hay đo tốc độ trên T4, mỗi thành viên phải chạy smoke test với mô hình của mình và đạt `SMOKE TEST PASS`. Mỗi pull request thêm/sửa mô hình hoặc script đánh giá phải ghi kết quả smoke test.
+
+Ba file dùng cho bước này:
+
+| File | Vai trò |
+|---|---|
+| `models/dummy.py` | Mô hình giả và bản cài mẫu (`load_model`, `build_trainer`, `GenerativeModel`, `Trainer`); các biến thể lỗi có chủ đích (`DEFECTS`, `TRAINER_DEFECTS`) để chứng minh bộ kiểm tra bắt được lỗi; file `quality`/`real_baseline` giả đúng cấu trúc |
+| `configs/eval/speed_example.yaml` | Spec mẫu: dataset, precision, batch size, danh sách target (checkpoint, `run_name`, `label`, `sample_kwargs`, `trainer_config`, `quality`, `run_metadata`) |
+| `scripts/smoke_test_benchmark.py` | Chạy từng bước, dùng `assert` để kiểm tra cấu trúc output; sai ở đâu dừng ở đó và in lý do |
+
+Cách chạy:
+
+```bash
+# 1. Kiểm tra pipeline bằng mô hình giả (phải PASS trên máy/Colab/Kaggle của mình trước)
+python scripts/smoke_test_benchmark.py
+
+# 2. Chép spec mẫu, sửa target của mô hình mình: bỏ loader_module, điền checkpoint
+#    và trainer_config thật (checkpoint sau giai đoạn 0 là đủ), rồi chạy
+python scripts/smoke_test_benchmark.py --spec configs/eval/speed_<tên>.yaml
+```
+
+Các bước smoke test kiểm tra:
+
+1. **Spec**: khóa bắt buộc; DDPM có `sampler`, `steps` và `label`; `comparison: sampler` chỉ cho DDPM và phải có dòng DDPM chính cùng `run_name`.
+2. **Interface**: `load_model` trả về `GenerativeModel`, tên module đúng vai trò, `image_shape` đúng dataset (mục 2.1), `sample()` trả về tensor float `(n, C, H, W)` trong [0, 1], cùng device (kể cả chỉ số GPU), cùng seed cho cùng ảnh, `forward_passes_per_image` và `example_inputs()` đúng.
+3. **Mô hình sai**: chạy kiểm tra của bước 2 và kiểm tra `Trainer` trên từng biến thể lỗi trong `models/dummy.py` (sai thứ tự chiều, quên đổi [-1, 1] về [0, 1], uint8, NaN, bỏ qua seed, bỏ qua `n`, sai tên module, thiếu discriminator, sai `forward_passes_per_image`, `example_inputs()` sai batch, Trainer sai shape/precision/batch...). Mỗi lỗi phải bị bắt đúng chỗ; nếu không, bộ kiểm tra bị lỏng và lỗi tương tự của mô hình thật cũng sẽ lọt qua.
+4. **Tốc độ**: `evaluation/speed.py` ghi file `speed` đúng khóa ghép và đủ trường; `warmup`/`repeats` riêng của từng target được áp dụng; target cùng checkpoint dùng chung mô hình; file được ghi sau mỗi vòng đo (`complete = false` cho tới khi đo xong) để phiên bị ngắt không mất số liệu.
+5. **MACs/FLOPs**: file `compute` đúng công thức mục 2.5; fvcore và thop cho cùng MACs.
+6. **Hiệu chuẩn**: `build_trainer` trả về `Trainer` đúng `batch_size`, `image_shape`, `precision`, `num_gpus` và `train_step` chạy được; file `calibration` đủ trường; đường dẫn config của Kaggle, Colab, Windows đều được đưa về cùng chuỗi `configs/...`.
+7. **Ảnh mẫu**: `scripts/render_samples.py` ghi đúng đường dẫn mục 4.2.
+8. **FID/diversity**: ảnh lưu PNG uint8 = `round(clamp(x) × 255)` đúng độ phân giải; `configs/eval/fid.yaml` đúng mục 2.6; file `quality` và `real_baseline` đủ khóa, đúng tên cache `<dataset>_<split>_<resolution>`, metric trong miền hợp lệ; dòng phụ so sánh sampler có `comparison`, `num_gen = 10000` và đủ `fid_train_10k`, `kid_test_*`.
+9. **Metadata run**: file `run` đủ trường mục 4.3, run `full` có `curve` tăng dần.
+10. **Tổng hợp** và 11. **Bắt lỗi** (chỉ với mô hình giả): `aggregate_results.py` ra bảng đúng; từ chối dữ liệu không công bằng và metadata run có số điền tay; cảnh báo file `speed` ghi dở hoặc thiếu `complete`, thiếu file `compute`; không đọc `kind` cũ; run ghi config đường dẫn tuyệt đối vẫn quy đổi được Thời gian - T4.
+
+`evaluation/fid.py`, `evaluation/diversity.py` và `configs/eval/fid.yaml` chưa có thì bước 8 dùng metric giả trong `models/dummy.py` để thử cấu trúc và báo trong mục "Chưa kiểm tra được". Khi Quân hoàn thành hai file này, `fid.yaml` phải có các khóa trong `FID_CONFIG_EXPECTED` của smoke test (đổi tên khóa thì sửa dict này cùng lúc), và mỗi target thêm `quality: <file quality>` để smoke test kiểm tra file thật.
+
+Không chạy smoke test bằng `python -O` (cờ này tắt `assert`).
 
 ## 5. Quản lý Git và artifact
 
@@ -594,13 +656,14 @@ Mỗi pull request phải ghi nội dung, cách chạy, dataset/config, kết qu
 ## 6. Trình tự thực hiện
 
 1. Lâm hoàn thành ba pipeline/config dữ liệu, cố định split và xuất ảnh tham chiếu. Song song, Quân hoàn thành pipeline KID/FID và cache statistics.
-2. Cả nhóm kiểm tra cùng đọc được dữ liệu và chạy được pipeline đánh giá trên Colab/Kaggle.
-3. Giai đoạn 0: mỗi thành viên chạy kiểm tra overfit cho từng dataset.
-4. Giai đoạn 1: tuning ngắn, chọn config bằng KID-5k trên validation.
-5. Giai đoạn 2: train đầy đủ một lần với config đã chọn; tính KID validation tại các checkpoint.
-6. Sinh bộ 50k ảnh chính thức bằng seed đã thống nhất.
-7. Quân chạy FID/KID/diversity theo mục 2.6; Long đo FLOPs, benchmark tốc độ trên T4 và tổng hợp.
-8. Báo cáo kết quả riêng cho từng dataset và kết luận chung.
+2. Cả nhóm kiểm tra cùng đọc được dữ liệu và chạy được pipeline đánh giá trên Colab/Kaggle; mỗi thành viên chạy `python scripts/smoke_test_benchmark.py` và đạt PASS (mục 4.4).
+3. Trước khi chạy mô hình thật ở bất kỳ giai đoạn nào, chạy smoke test với spec chứa checkpoint của mô hình mình và đạt PASS (mục 4.4).
+4. Giai đoạn 0: mỗi thành viên chạy kiểm tra overfit cho từng dataset.
+5. Giai đoạn 1: tuning ngắn, chọn config bằng KID-5k trên validation.
+6. Giai đoạn 2: train đầy đủ một lần với config đã chọn; tính KID validation tại các checkpoint.
+7. Sinh bộ 50k ảnh chính thức bằng seed đã thống nhất.
+8. Quân chạy FID/KID/diversity theo mục 2.6; Long đo FLOPs, benchmark tốc độ trên T4 và tổng hợp.
+9. Báo cáo kết quả riêng cho từng dataset và kết luận chung.
 
 ## 7. Tiêu chí hoàn thành tối thiểu
 
@@ -615,8 +678,6 @@ Mỗi pull request phải ghi nội dung, cách chạy, dataset/config, kết qu
 - Dataset và checkpoint lớn không nằm trong Git.
 
 ## 8. Mở rộng
-
-Chỉ thực hiện sau khi hoàn thành yêu cầu tối thiểu:
 
 - Conditional DDPM:
   - Fashion-MNIST và CIFAR-10 dùng 10 lớp có sẵn.
