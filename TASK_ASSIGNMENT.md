@@ -214,7 +214,7 @@ Ví dụ: P100 nhanh hơn T4 1,3 lần với config này thì 2 giờ trên P100
 
 - Nếu train trên nhiều GPU cùng lúc (Kaggle T4×2), hiệu chuẩn cả cụm như một phần cứng h.
 - "Giờ train thực tế" chỉ tính thời gian các training step (log cộng dồn trong training loop), không tính evaluation, lưu checkpoint hay thời gian Colab bị ngắt. Wall-clock tổng được báo riêng.
-- Đo throughput bằng `evaluation/calibrate.py`; mỗi lần đo ghi một file `kind = "calibration"` (log hiệu chuẩn). Metadata của run ghi giờ train theo từng phần cứng (`hardware`, mục 4.3). `scripts/aggregate_results.py` tự tính `k_h` và Thời gian - T4 từ hai nguồn này, không dùng số điền tay.
+- Đo throughput bằng `evaluation/calibrate.py`; mỗi lần đo ghi một file `kind = "calibration"` (log hiệu chuẩn). Metadata của run ghi giờ train theo từng phần cứng (`hardware`, mục 4.3). `scripts/aggregate_results.py` tự tính `k_h` và Thời gian - T4 từ hai nguồn này; metadata run có ghi sẵn `gpu_hours_t4` thì bị báo lỗi (mục 4.3). Đường dẫn config được đưa về dạng `configs/...` trước khi ghép, nên run train trên Kaggle/Colab (đường dẫn tuyệt đối) vẫn ghép được với file calibration đo ở máy khác.
 
 Tốc độ sinh không dùng công thức quy đổi; đo trực tiếp trên T4 như mục 2.4.
 
@@ -479,6 +479,8 @@ Mọi file kết quả là JSON có trường `kind` và các khóa ghép `datas
 | `calibration` | `evaluation/calibrate.py` | Throughput train của một config trên một phần cứng |
 | `real_baseline` | `evaluation/fid.py` | Số liệu thật-với-thật của dataset (`fid_floor`, `lpips_real`) |
 
+**Mọi file JSON kết quả chỉ được sinh ra khi chạy script, không viết tay và không sửa tay số liệu trong file.** Số sai thì sửa code hoặc config rồi chạy lại script. Script tổng hợp chỉ đọc đúng định dạng hiện tại: không nhận `kind` cũ (ví dụ `"reference"` thay cho `"real_baseline"`), và file `speed` thiếu trường `complete` bị coi là chưa đo xong.
+
 File `quality`:
 
 ```json
@@ -536,6 +538,7 @@ Script tổng hợp từ chối ghi bảng nếu trong cùng một dataset:
 - MACs được đo bằng công cụ hoặc phiên bản khác nhau.
 - Không quy đổi được giờ train về T4 vì thiếu file calibration, file calibration thiếu `dataset`, hoặc trùng file calibration/metadata run.
 - Một dòng DDPM thiếu sampler và số step.
+- Metadata run có trường do script tổng hợp tự tính (`params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4`), dù giá trị đúng hay sai (mục 4.3).
 
 Quên ghi `"comparison": "sampler"` ở dòng DDPM 500 thì dòng này rơi vào bảng chính và bị từ chối vì khác `num_gen`.
 
@@ -581,7 +584,7 @@ Mỗi run phải xuất metadata tối thiểu:
 
 - `hardware[].device` ghi đúng "device key" mà `evaluation/calibrate.py` in ra (ví dụ `"Tesla T4"`, `"Tesla T4 x2"`). `train_hours` là giờ train thực tế trên phần cứng đó (mục 2.5).
 - `curve` là KID validation tại các checkpoint của lần train đầy đủ (giai đoạn 2). `hardware_hours` là giờ train cộng dồn tới checkpoint đó, theo từng phần cứng.
-- Không cần điền `params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4`: script tổng hợp lấy tham số và MACs từ file `compute`, tính FLOPs train = `train_steps` × `batch_size` × FLOPs train mỗi ảnh, và tính Thời gian - T4 từ `hardware` cùng các file `calibration`. Nếu vẫn điền tay mà lệch với giá trị tính được, script cảnh báo và dùng giá trị tính được.
+- **Không được ghi** `params_m`, `gmacs_per_forward`, `train_flops`, `gpu_hours_t4` vào metadata: script tổng hợp lấy tham số và MACs từ file `compute`, tính FLOPs train = `train_steps` × `batch_size` × FLOPs train mỗi ảnh, và tính Thời gian - T4 từ `hardware` cùng các file `calibration`. Metadata có một trong các trường này thì script báo lỗi và không ghi bảng. Thiếu file `compute` thì các cột tham số, MACs/FLOPs và FLOPs train để trống (không lấy từ metadata).
 - File `calibration` phải có `dataset`; script tổng hợp ghép calibration với run theo `(dataset, model, config)`. Mỗi `(model, run_name)` của một dataset chỉ có **một** file metadata; trùng thì script báo lỗi.
 
 ### 4.4. Smoke test bắt buộc trước khi chạy mô hình thật
@@ -614,11 +617,11 @@ Các bước smoke test kiểm tra:
 3. **Mô hình sai**: chạy kiểm tra của bước 2 và kiểm tra `Trainer` trên từng biến thể lỗi trong `models/dummy.py` (sai thứ tự chiều, quên đổi [-1, 1] về [0, 1], uint8, NaN, bỏ qua seed, bỏ qua `n`, sai tên module, thiếu discriminator, sai `forward_passes_per_image`, `example_inputs()` sai batch, Trainer sai shape/precision/batch...). Mỗi lỗi phải bị bắt đúng chỗ; nếu không, bộ kiểm tra bị lỏng và lỗi tương tự của mô hình thật cũng sẽ lọt qua.
 4. **Tốc độ**: `evaluation/speed.py` ghi file `speed` đúng khóa ghép và đủ trường; `warmup`/`repeats` riêng của từng target được áp dụng; target cùng checkpoint dùng chung mô hình; file được ghi sau mỗi vòng đo (`complete = false` cho tới khi đo xong) để phiên bị ngắt không mất số liệu.
 5. **MACs/FLOPs**: file `compute` đúng công thức mục 2.5; fvcore và thop cho cùng MACs.
-6. **Hiệu chuẩn**: `build_trainer` trả về `Trainer` đúng `batch_size`, `image_shape`, `precision`, `num_gpus` và `train_step` chạy được; file `calibration` đủ trường.
+6. **Hiệu chuẩn**: `build_trainer` trả về `Trainer` đúng `batch_size`, `image_shape`, `precision`, `num_gpus` và `train_step` chạy được; file `calibration` đủ trường; đường dẫn config của Kaggle, Colab, Windows đều được đưa về cùng chuỗi `configs/...`.
 7. **Ảnh mẫu**: `scripts/render_samples.py` ghi đúng đường dẫn mục 4.2.
 8. **FID/diversity**: ảnh lưu PNG uint8 = `round(clamp(x) × 255)` đúng độ phân giải; `configs/eval/fid.yaml` đúng mục 2.6; file `quality` và `real_baseline` đủ khóa, đúng tên cache `<dataset>_<split>_<resolution>`, metric trong miền hợp lệ; dòng phụ so sánh sampler có `comparison`, `num_gen = 10000` và đủ `fid_train_10k`, `kid_test_*`.
 9. **Metadata run**: file `run` đủ trường mục 4.3, run `full` có `curve` tăng dần.
-10. **Tổng hợp** và 11. **Bắt lỗi** (chỉ với mô hình giả): `aggregate_results.py` ra bảng đúng và từ chối dữ liệu không công bằng.
+10. **Tổng hợp** và 11. **Bắt lỗi** (chỉ với mô hình giả): `aggregate_results.py` ra bảng đúng; từ chối dữ liệu không công bằng và metadata run có số điền tay; cảnh báo file `speed` ghi dở hoặc thiếu `complete`, thiếu file `compute`; không đọc `kind` cũ; run ghi config đường dẫn tuyệt đối vẫn quy đổi được Thời gian - T4.
 
 `evaluation/fid.py`, `evaluation/diversity.py` và `configs/eval/fid.yaml` chưa có thì bước 8 dùng metric giả trong `models/dummy.py` để thử cấu trúc và báo trong mục "Chưa kiểm tra được". Khi Quân hoàn thành hai file này, `fid.yaml` phải có các khóa trong `FID_CONFIG_EXPECTED` của smoke test (đổi tên khóa thì sửa dict này cùng lúc), và mỗi target thêm `quality: <file quality>` để smoke test kiểm tra file thật.
 

@@ -20,13 +20,16 @@ Các bước:
                         models/dummy.py (DEFECTS, TRAINER_DEFECTS); mỗi lỗi phải bị bắt.
      4. Tốc độ          evaluation/speed.py và cấu trúc file kind = "speed".
      5. MACs/FLOPs      evaluation/flops.py và cấu trúc file kind = "compute".
-     6. Hiệu chuẩn      build_trainer, evaluation/calibrate.py, file kind = "calibration".
+     6. Hiệu chuẩn      build_trainer, evaluation/calibrate.py, file kind = "calibration",
+                        normalize_config đưa đường dẫn config của mọi máy về cùng một chuỗi.
      7. Ảnh mẫu         scripts/render_samples.py ghi đúng đường dẫn.
      8. FID/diversity   ảnh PNG uint8 theo mục 2.6, configs/eval/fid.yaml (nếu có),
                         file kind = "quality" và "real_baseline".
      9. Metadata run    file kind = "run" theo mục 4.3.
     10. Tổng hợp        aggregate_results.py ghi bảng đúng (chỉ với mô hình giả).
-    11. Bắt lỗi         aggregate_results.py từ chối dữ liệu không công bằng (chỉ với mô hình giả).
+    11. Bắt lỗi         aggregate_results.py từ chối dữ liệu không công bằng và số điền tay
+                        trong metadata run; cảnh báo file speed chưa đo xong; không đọc
+                        kind cũ; ghép được config ghi đường dẫn tuyệt đối (chỉ với mô hình giả).
 
 Với mô hình thật, bước 8 và 9 kiểm tra file trong `quality` / `run_metadata`
 của target nếu có; chưa có thì báo BỎ QUA. Không chạy bằng `python -O`
@@ -53,8 +56,7 @@ import tempfile
 import traceback
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem evaluation/common.py
 # Console Windows (cp1252) không in được tiếng Việt khi chạy qua pipe/CI.
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -66,6 +68,7 @@ import yaml  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from evaluation.calibrate import calibrate  # noqa: E402
+from evaluation.common import ROOT, normalize_config  # noqa: E402
 from evaluation.speed import run_benchmark  # noqa: E402
 from models.dummy import (  # noqa: E402
     DATASET_SHAPES,
@@ -156,6 +159,20 @@ ELEMENTWISE_OPS = {
 RUN_KEYS = (
     "kind", "model", "dataset", "run_name", "stage", "config", "seed", "commit",
     "train_steps", "batch_size", "precision", "hardware",
+)
+# Script tổng hợp tự tính các trường này; metadata run có chúng là số điền tay → lỗi (mục 4.3).
+SCRIPT_COMPUTED_RUN_FIELDS = ("params_m", "gmacs_per_forward", "train_flops", "gpu_hours_t4")
+# (đường dẫn config ghi trên một máy nào đó, chuỗi normalize_config phải trả về)
+CONFIG_PATH_CASES = (
+    ("configs/ddpm/cifar10/base.yaml", "configs/ddpm/cifar10/base.yaml"),
+    ("./configs/ddpm/cifar10/base.yaml", "configs/ddpm/cifar10/base.yaml"),
+    ("/kaggle/working/Model-Image-Generator-/configs/ddpm/cifar10/base.yaml", "configs/ddpm/cifar10/base.yaml"),
+    ("/content/drive/MyDrive/repo/configs/vae/celeba/base.yaml", "configs/vae/celeba/base.yaml"),
+    ("C:\\Users\\a\\repo\\configs\\dcgan\\fashion_mnist\\base.yaml", "configs/dcgan/fashion_mnist/base.yaml"),
+    ("/a/configs/cu/configs/ddpm/cifar10/base.yaml", "configs/ddpm/cifar10/base.yaml"),
+    ("/a/myconfigs/base.yaml", "/a/myconfigs/base.yaml"),
+    ("vae:16:cifar10", "vae:16:cifar10"),
+    (None, None),
 )
 
 
@@ -712,6 +729,12 @@ def step_compute(ctx: Ctx) -> None:
 
 
 def step_calibration(ctx: Ctx) -> None:
+    # Run train trên Kaggle/Colab/Windows và file calibration đo ở máy khác phải ra cùng chuỗi config,
+    # kể cả khi máy chạy aggregate không có thư mục đó.
+    for raw, expected in CONFIG_PATH_CASES:
+        got = normalize_config(raw)
+        assert got == expected, f"normalize_config({raw!r}) = {got!r}, cần {expected!r}"
+    print(f"    OK normalize_config: {len(CONFIG_PATH_CASES)} đường dẫn")
     seen = set()
     for t in ctx.targets:
         cfg = t["trainer_config"]
@@ -963,6 +986,18 @@ def step_errors(ctx: Ctx) -> None:
         assert not out.exists(), f"[{name}] không được ghi bảng khi có lỗi"
         print(f"    OK bắt lỗi: {name}")
 
+    def expect_ok(name: str) -> tuple[Path, subprocess.CompletedProcess]:
+        out = ctx.tmp / f"ok_{name}"
+        result = aggregate(ctx, out)
+        assert result.returncode == 0, f"[{name}] aggregate_results.py phải ghi được bảng:\n{result.stderr}"
+        return out, result
+
+    def expect_warning(name: str, needle: str) -> tuple[Path, subprocess.CompletedProcess]:
+        out, result = expect_ok(name)
+        assert needle in result.stderr, f"[{name}] cần cảnh báo chứa {needle!r}, nhận:\n{result.stderr}"
+        print(f"    OK cảnh báo: {name}")
+        return out, result
+
     cal_dir, runs_dir, q_dir = ctx.metrics / "calibration", ctx.metrics / "runs", ctx.metrics / "quality"
     p100_path = cal_dir / f"{ctx.dataset}__ddpm__p100.json"
     p100 = read_json(p100_path)
@@ -1013,15 +1048,64 @@ def step_errors(ctx: Ctx) -> None:
         expect_error("comparison_tren_VAE", "chỉ dùng cho DDPM")
         write_json(bad_path, good)
 
-    # File speed ghi dở (phiên bị ngắt sau vòng 1): vẫn ghi bảng nhưng phải cảnh báo.
+    # Số điền tay trong metadata run bị từ chối, kể cả khi đúng bằng số script tính (VAE: 1 giờ T4).
+    vae_run_path = runs_dir / "vae_smoke.json"
+    vae_run = read_json(vae_run_path)
+    manual_values = {"params_m": 1.0, "gmacs_per_forward": 0.1, "train_flops": 1e12, "gpu_hours_t4": 1.0}
+    for key in SCRIPT_COMPUTED_RUN_FIELDS:
+        write_json(vae_run_path, dict(vae_run, **{key: manual_values[key]}))
+        expect_error(f"run_dien_tay ({key})", "không được điền tay")
+    write_json(vae_run_path, vae_run)
+
+    # File speed ghi dở (phiên bị ngắt sau vòng 1) hoặc thiếu `complete`: vẫn ghi bảng nhưng phải cảnh báo.
     vae_speed = ctx.metrics / "speed" / result_name(ctx.dataset, vae)
     full = read_json(vae_speed)
     write_json(vae_speed, read_json(ctx.tmp / "speed_partial" / vae_speed.name))
-    result = aggregate(ctx, ctx.tmp / "partial_speed")
-    assert result.returncode == 0, f"File speed ghi dở vẫn phải tổng hợp được:\n{result.stderr}"
-    assert "chưa đo xong" in result.stderr, f"Thiếu cảnh báo speed chưa đo xong:\n{result.stderr}"
-    print("    OK cảnh báo: speed_ghi_do")
+    expect_warning("speed_ghi_do", "chưa đo xong")
+    write_json(vae_speed, {k: v for k, v in full.items() if k != "complete"})
+    expect_warning("speed_thieu_complete", "thiếu trường complete")
     write_json(vae_speed, full)
+
+    # Không đọc kind cũ: real_baseline ghi kind = "reference" thì bảng không có mức tham chiếu.
+    baseline_path = ctx.metrics / "real_baseline.json"
+    baseline = read_json(baseline_path)
+    write_json(baseline_path, dict(baseline, kind="reference"))
+    out, _ = expect_ok("kind_cu_reference")
+    assert "Mức tham chiếu thật-với-thật" not in (out / "summary.md").read_text(encoding="utf-8"), (
+        "[kind_cu_reference] file kind = 'reference' không được đọc như real_baseline"
+    )
+    print("    OK bỏ qua: kind_cu_reference")
+    write_json(baseline_path, baseline)
+
+    # Thiếu file compute: cảnh báo, các cột tham số và MACs/FLOPs để trống (không lấy từ metadata run).
+    vae_compute = ctx.metrics / "compute" / result_name(ctx.dataset, vae)
+    compute = read_json(vae_compute)
+    vae_compute.unlink()
+    out, _ = expect_warning("thieu_compute", "thiếu file compute")
+    with (out / f"{ctx.dataset}_cost.csv").open(encoding="utf-8") as f:
+        vae_cost = next(r for r in csv.DictReader(f) if r["run_name"] == vae["run_name"])
+    empty = ("params_m", "params_train_m", "gmacs_per_image", "gflops_per_image", "train_flops")
+    assert all(vae_cost[k] == "" for k in empty), f"[thieu_compute] các cột {empty} phải để trống: {vae_cost}"
+    write_json(vae_compute, compute)
+
+    # Run train trên Kaggle ghi config tuyệt đối, calibration P100 đo trên Windows, calibration máy
+    # tham chiếu ghi đường dẫn tương đối: vẫn phải ghép được và ra đúng 3,6 giờ quy đổi của DDPM.
+    ddpm_run_path = runs_dir / "ddpm_smoke.json"
+    ddpm_run = read_json(ddpm_run_path)
+    ddpm_ref_path = cal_dir / f"{ctx.dataset}__ddpm__{ctx.calibration['ddpm']['device']}.json"
+    ddpm_ref = read_json(ddpm_ref_path)
+    config = f"configs/ddpm/{ctx.dataset}/base.yaml"
+    write_json(ddpm_run_path, dict(ddpm_run, config=f"/kaggle/working/Model-Image-Generator-/{config}"))
+    write_json(ddpm_ref_path, dict(ddpm_ref, config=config))
+    write_json(p100_path, dict(p100, config="C:\\Users\\a\\Model-Image-Generator-\\" + config.replace("/", "\\")))
+    out, _ = expect_ok("config_duong_dan_tuyet_doi")
+    with (out / f"{ctx.dataset}_cost.csv").open(encoding="utf-8") as f:
+        ddpm_cost = next(r for r in csv.DictReader(f) if r["run_name"] == ddpm_run["run_name"])
+    assert abs(float(ddpm_cost["gpu_hours_t4"]) - 3.6) < 1e-6, f"[config_duong_dan_tuyet_doi] {ddpm_cost}"
+    print("    OK ghép config: config_duong_dan_tuyet_doi")
+    write_json(ddpm_run_path, ddpm_run)
+    write_json(ddpm_ref_path, ddpm_ref)
+    write_json(p100_path, p100)
 
     # Sau khi hoàn nguyên, bảng phải ghi lại được.
     result = aggregate(ctx, ctx.tmp / "summary_again")

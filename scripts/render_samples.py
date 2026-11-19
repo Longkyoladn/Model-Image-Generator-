@@ -23,9 +23,7 @@ from pathlib import Path
 import torch
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem evaluation/common.py
 
 from models.interface import check_contract, load_model  # noqa: E402
 
