@@ -688,3 +688,7 @@ Mỗi pull request phải ghi nội dung, cách chạy, dataset/config, kết qu
 - Train lại config tốt nhất với 2–3 seed train để đo biến thiên giữa các lần train.
 - Fine-tune Stable Diffusion bằng LoRA theo phong cách riêng.
 - Demo sinh ảnh.
+
+
+## 9. Lưu ý  
+- nếu có thắc mắc nào về TASK thì gửi thông tin về  cho Long 
