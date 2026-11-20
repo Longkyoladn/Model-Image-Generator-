@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from evaluation.common import normalize_config
+from configs.common import normalize_config
 
 
 def is_reference_device(device: str, reference: str) -> bool:

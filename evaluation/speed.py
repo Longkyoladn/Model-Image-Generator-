@@ -35,9 +35,9 @@ from pathlib import Path
 
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem evaluation/common.py
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem configs/common.py
 
-from evaluation.common import git_commit, sync  # noqa: E402
+from configs.common import git_commit, sync  # noqa: E402
 from models.interface import GenerativeModel, check_contract, load_model  # noqa: E402
 
 

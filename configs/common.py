@@ -5,7 +5,7 @@ repo vào `sys.path` bằng một dòng trước khi import module này, vì khi
 vậy Python chỉ thêm thư mục chứa script (`evaluation/`, `scripts/`) chứ không
 thêm gốc repo:
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem evaluation/common.py
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem configs/common.py
 
 Module này không import torch ở đầu file để script tổng hợp (không cần torch)
 vẫn dùng được `normalize_config`.

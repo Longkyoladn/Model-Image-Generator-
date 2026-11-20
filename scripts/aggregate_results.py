@@ -43,7 +43,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem evaluation/common.py
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem configs/common.py
 
 from scripts.aggregate.fairness_checks import check_comparison_flags, run_fairness_checks  # noqa: E402
 from scripts.aggregate.gpu_hours import GpuHoursConverter, build_calibration_index  # noqa: E402

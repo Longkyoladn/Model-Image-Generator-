@@ -31,9 +31,9 @@ from pathlib import Path
 
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem evaluation/common.py
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem configs/common.py
 
-from evaluation.common import git_commit  # noqa: E402
+from configs.common import git_commit  # noqa: E402
 from models.interface import SAMPLING_ROLE, check_roles, load_model  # noqa: E402
 
 

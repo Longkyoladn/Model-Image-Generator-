@@ -56,7 +56,7 @@ import tempfile
 import traceback
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem evaluation/common.py
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem configs/common.py
 # Console Windows (cp1252) không in được tiếng Việt khi chạy qua pipe/CI.
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -68,7 +68,7 @@ import yaml  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from evaluation.calibrate import calibrate  # noqa: E402
-from evaluation.common import ROOT, normalize_config  # noqa: E402
+from configs.common import ROOT, normalize_config  # noqa: E402
 from evaluation.speed import run_benchmark  # noqa: E402
 from models.dummy import (  # noqa: E402
     DATASET_SHAPES,
