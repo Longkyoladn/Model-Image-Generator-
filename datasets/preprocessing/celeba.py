@@ -147,11 +147,15 @@ class CelebADataset(Dataset):
                     )
                     
                 target_attr_idx = header.index(target_attr)
+                # Nếu header chứa cột tên ảnh (như image_id trong file CSV của Kaggle), target_attr_idx đã đúng vị trí cột.
+                # Nếu header chỉ chứa danh sách thuộc tính (như file TXT gốc), cần +1 vì cột 0 của dữ liệu là tên ảnh.
+                col_offset = 0 if header[0].lower() in ["image_id", "img_name", "image", "filename"] else 1
                 for line in data_lines:
                     parts = line.replace(",", " ").split()
                     img_name = parts[0]
-                    if len(parts) > target_attr_idx + 1:
-                        val = int(parts[target_attr_idx + 1])
+                    col_idx = target_attr_idx + col_offset
+                    if len(parts) > col_idx:
+                        val = int(parts[col_idx])
                         # CelebA quy ước 1 là có thuộc tính, -1 là không có thuộc tính
                         attr_dict[img_name] = 1 if val == 1 else 0
                         
@@ -171,10 +175,12 @@ class CelebADataset(Dataset):
                             header, data_lines = [], []
                         if header and target_attr in header:
                             idx = header.index(target_attr)
+                            col_offset = 0 if header[0].lower() in ["image_id", "img_name", "image", "filename"] else 1
                             for line in data_lines:
                                 parts = line.replace(",", " ").split()
-                                if len(parts) > idx + 1:
-                                    attr_dict[parts[0]] = 1 if int(parts[idx + 1]) == 1 else 0
+                                col_idx = idx + col_offset
+                                if len(parts) > col_idx:
+                                    attr_dict[parts[0]] = 1 if int(parts[col_idx]) == 1 else 0
             except Exception:
                 pass
 
