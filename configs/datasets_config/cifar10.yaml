@@ -26,8 +26,8 @@ augmentation:
 
 splits:
   type: "stratified_random"
-  train_samples: 40000                         # 40,000 ảnh từ tập train gốc 50k
-  val_samples: 10000                           # 10,000 ảnh từ tập train gốc 50k
+  train_samples: 45000                         # 45,000 ảnh từ tập train gốc 50k
+  val_samples: 5000                            # 5,000 ảnh từ tập train gốc 50k
   test_samples: 10000                          # 10,000 ảnh từ tập test gốc
   random_seed: 42
 
