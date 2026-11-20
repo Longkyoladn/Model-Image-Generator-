@@ -1,10 +1,9 @@
 # Datasets
 
-Dự án huấn luyện và đánh giá VAE, DCGAN và DDPM trên cả ba bộ dữ liệu: **CelebA**, **Fashion-MNIST** và **CIFAR-10**.
+Dự án huấn luyện và đánh giá VAE, DCGAN và DDPM trên cả ba bộ dữ liệu: CelebA, Fashion-MNIST và CIFAR-10.
 
-Dataset không được commit vào repository. Dữ liệu được truy cập từ Google Drive, Kaggle Dataset hoặc tự động tải trong runtime Colab/Kaggle.
+Dataset không được commit vào repository. Dữ liệu nên được truy cập từ Google Drive, Kaggle Dataset hoặc tự động tải trong runtime Colab/Kaggle khi nguồn chính thức cho phép.
 
----
 
 ## 1. Thông tin ba Dataset (Đã hoàn thiện bởi Lâm)
 
