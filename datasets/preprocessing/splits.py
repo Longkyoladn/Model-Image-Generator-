@@ -6,19 +6,26 @@ import torch
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SPLITS_DIR = os.path.join(os.path.dirname(CURRENT_DIR), "splits")
 
-def create_or_load_split(dataset_name, total_train_size, total_test_size, val_size=10000, seed=42, output_dir=None, labels=None, force_recreate=False):
+def create_or_load_split(dataset_name, total_train_size, total_test_size, val_size=10000, seed=42, output_dir=None, labels=None, force_recreate=False, split_file=None):
     """
     Tạo hoặc đọc metadata split train/val/test cố định bằng random seed.
     Hỗ trợ Stratified Split khi cung cấp `labels` để đảm bảo tỷ lệ các lớp trong tập val
     luôn phân bổ đồng đều tuyệt đối theo đúng yêu cầu phân tầng của đề tài.
     """
-    if output_dir is None:
-        output_dir = DEFAULT_SPLITS_DIR
-    elif not os.path.isabs(output_dir) and not os.path.exists(output_dir):
-        output_dir = DEFAULT_SPLITS_DIR
-        
-    os.makedirs(output_dir, exist_ok=True)
-    split_path = os.path.join(output_dir, f"{dataset_name}_split.json")
+    if split_file:
+        if not os.path.isabs(split_file):
+            candidate = os.path.join(os.path.dirname(DEFAULT_SPLITS_DIR), split_file)
+            split_path = candidate if (os.path.exists(candidate) or not os.path.exists(split_file)) else split_file
+        else:
+            split_path = split_file
+        os.makedirs(os.path.dirname(split_path), exist_ok=True)
+    else:
+        if output_dir is None:
+            output_dir = DEFAULT_SPLITS_DIR
+        elif not os.path.isabs(output_dir) and not os.path.exists(output_dir):
+            output_dir = DEFAULT_SPLITS_DIR
+        os.makedirs(output_dir, exist_ok=True)
+        split_path = os.path.join(output_dir, f"{dataset_name}_split.json")
     
     if not force_recreate and os.path.exists(split_path):
         with open(split_path, "r", encoding="utf-8") as f:

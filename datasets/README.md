@@ -39,7 +39,7 @@ Dataset không được commit vào repository. Dữ liệu nên được truy c
 - **Nhãn Conditional**: Thuộc tính `Smiling` (index 31) được nhóm chọn làm nhãn điều kiện chính:
   - `0`: Không cười (Non-smiling)
   - `1`: Đang cười (Smiling)
-- **Cấu hình**: [`configs/datasets_config/celeba.yaml`](../configs/datasets_config/celeba.yaml)
+- **Cấu hình**: [`configs/datasets/celeba.yaml`](../configs/datasets/celeba.yaml)
 - **Lưu ý**: Phải dùng cùng split và cùng preprocessing cho VAE, DCGAN và DDPM.
 
 ### 2.2. Fashion-MNIST
@@ -47,14 +47,14 @@ Dataset không được commit vào repository. Dữ liệu nên được truy c
 - **Nội dung**: 70.000 ảnh grayscale thuộc 10 lớp trang phục, gồm 60.000 ảnh train và 10.000 ảnh test gốc.
 - **Kích thước gốc**: 28×28, một kênh đen trắng.
 - **Quy trình tiền xử lý**:
-  1. `transforms.Resize((32, 32))`: Đưa lên 32×32 (lũy thừa của 2: $32 \to 16 \to 8 \to 4$) để các tầng `ConvTranspose2d` giải nén không bị lệch padding.
+  1. `transforms.Pad(2)` hoặc `transforms.Resize((32, 32))`: Đưa lên 32×32 (lũy thừa của 2: $32 \to 16 \to 8 \to 4$) theo cấu hình YAML.
   2. `transforms.RandomHorizontalFlip(p=0.5)` (train).
   3. `transforms.ToTensor()` + `transforms.Normalize(mean=[0.5], std=[0.5])` về `[-1, 1]`.
 - **Split**: Giữ 10.000 ảnh test chính thức; tách stratified 10.000 ảnh validation từ 60.000 ảnh train → 50.000 / 10.000 / 10.000 (Seed 42).
 - **10 lớp trang phục**:
   `0: T-shirt/top`, `1: Trouser`, `2: Pullover`, `3: Dress`, `4: Coat`, `5: Sandal`, `6: Shirt`, `7: Sneaker`, `8: Bag`, `9: Ankle boot`.
 - **Khi tính FID**: Ảnh grayscale được lặp thành 3 kênh cho cả ảnh thật và ảnh sinh (xem mục 2.6 của `TASK_ASSIGNMENT.md`).
-- **Cấu hình**: [`configs/datasets_config/fashion_mnist.yaml`](../configs/datasets_config/fashion_mnist.yaml)
+- **Cấu hình**: [`configs/datasets/fashion_mnist.yaml`](../configs/datasets/fashion_mnist.yaml)
 
 ### 2.3. CIFAR-10
 - **Nguồn**: [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html) (Alex Krizhevsky).
@@ -66,7 +66,7 @@ Dataset không được commit vào repository. Dữ liệu nên được truy c
 - **Split**: Giữ 10.000 ảnh test chính thức; tách stratified 5.000 ảnh validation từ 50.000 ảnh train → **45.000 / 5.000 / 10.000** (Seed 42 theo đúng bảng FID mục 2.6 của `TASK_ASSIGNMENT.md`).
 - **10 lớp đối tượng**:
   `0: airplane`, `1: automobile`, `2: bird`, `3: cat`, `4: deer`, `5: dog`, `6: frog`, `7: horse`, `8: ship`, `9: truck`.
-- **Cấu hình**: [`configs/datasets_config/cifar10.yaml`](../configs/datasets_config/cifar10.yaml)
+- **Cấu hình**: [`configs/datasets/cifar10.yaml`](../configs/datasets/cifar10.yaml)
 
 ---
 
@@ -97,9 +97,9 @@ Hai bộ này tự động tải về máy ảo Colab:
 from datasets.preprocessing.builder import build_dataloader
 
 # Nạp train loader
-train_loader, _ = build_dataloader("configs/datasets_config/fashion_mnist.yaml", split="train", batch_size=64)
+train_loader, _ = build_dataloader("configs/datasets/fashion_mnist.yaml", split="train", batch_size=64)
 # hoặc CIFAR-10
-train_loader, _ = build_dataloader("configs/datasets_config/cifar10.yaml", split="train", batch_size=64)
+train_loader, _ = build_dataloader("configs/datasets/cifar10.yaml", split="train", batch_size=64)
 ```
 
 #### B. Với CelebA (Thực hiện tuần tự 2 bước):
@@ -126,9 +126,9 @@ drive.mount('/content/drive')
 from datasets.preprocessing.builder import build_dataloader
 
 # Nạp dữ liệu CelebA (train / val / test)
-train_loader, _ = build_dataloader("configs/datasets_config/celeba.yaml", split="train", batch_size=64)
-val_loader, _   = build_dataloader("configs/datasets_config/celeba.yaml", split="val", batch_size=64)
-test_loader, _  = build_dataloader("configs/datasets_config/celeba.yaml", split="test", batch_size=64)
+train_loader, _ = build_dataloader("configs/datasets/celeba.yaml", split="train", batch_size=64)
+val_loader, _   = build_dataloader("configs/datasets/celeba.yaml", split="val", batch_size=64)
+test_loader, _  = build_dataloader("configs/datasets/celeba.yaml", split="test", batch_size=64)
 
 for images, labels in train_loader:
     # images shape: [64, 3, 64, 64], labels: [64] (0: không cười, 1: cười)
@@ -141,5 +141,5 @@ for images, labels in train_loader:
 ```python
 # Đính kèm trực tiếp Kaggle Dataset (jessicali9530/celeba-dataset)
 # Thư mục dữ liệu tự động nằm tại: /kaggle/input/celeba-dataset/
-train_loader, _ = build_dataloader("configs/datasets_config/celeba.yaml", split="train", batch_size=64)
+train_loader, _ = build_dataloader("configs/datasets/celeba.yaml", split="train", batch_size=64)
 ```

@@ -15,20 +15,50 @@ CELEBA_ATTRIBUTES = [
     "Wearing_Necklace", "Wearing_Necktie", "Young"
 ]
 
-def get_celeba_transforms(split="train", image_size=64, crop_size=140, norm_range="[-1, 1]", hflip=True):
-    transform_list = [
-        # Center crop phần trung tâm khuôn mặt (140x140 từ ảnh gốc 178x218)
-        transforms.CenterCrop(crop_size),
-        transforms.Resize((image_size, image_size))
-    ]
+INTERPOLATION_MAP = {
+    "bilinear": transforms.InterpolationMode.BILINEAR,
+    "bicubic": transforms.InterpolationMode.BICUBIC,
+    "nearest": transforms.InterpolationMode.NEAREST,
+    "box": transforms.InterpolationMode.BOX,
+    "hamming": transforms.InterpolationMode.HAMMING,
+    "lanczos": transforms.InterpolationMode.LANCZOS,
+}
+
+def get_celeba_transforms(
+    split="train",
+    image_size=64,
+    crop_size=140,
+    crop_type="center_crop",
+    interpolation="bilinear",
+    norm_range="[-1, 1]",
+    mean=None,
+    std=None,
+    hflip=None,
+    flip_prob=0.5
+):
+    transform_list = []
+    interp_mode = INTERPOLATION_MAP.get(str(interpolation).lower(), transforms.InterpolationMode.BILINEAR)
     
-    if split == "train" and hflip:
-        transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
+    # 1. Crop khuôn mặt theo cấu hình YAML
+    if crop_type == "center_crop" and crop_size:
+        transform_list.append(transforms.CenterCrop(crop_size))
         
+    # 2. Resize theo cấu hình YAML
+    transform_list.append(transforms.Resize((image_size, image_size), interpolation=interp_mode))
+    
+    # 3. Augmentation theo cấu hình YAML
+    should_flip = (split == "train") if hflip is None else hflip
+    if should_flip and flip_prob is not None and flip_prob > 0:
+        transform_list.append(transforms.RandomHorizontalFlip(p=flip_prob))
+        
+    # 4. Chuyển sang Tensor [0, 1]
     transform_list.append(transforms.ToTensor())
     
+    # 5. Chuẩn hóa theo cấu hình YAML
     if norm_range == "[-1, 1]":
-        transform_list.append(transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]))
+        norm_mean = mean if mean is not None else [0.5, 0.5, 0.5]
+        norm_std = std if std is not None else [0.5, 0.5, 0.5]
+        transform_list.append(transforms.Normalize(mean=norm_mean, std=norm_std))
         
     return transforms.Compose(transform_list)
 
@@ -239,13 +269,32 @@ class CelebADataset(Dataset):
         return image, label
 
 
-def load_celeba(root_dir="datasets/raw/celeba", split="train", image_size=64, crop_size=140, norm_range="[-1, 1]", target_attr="Smiling", is_conditional=False):
+def load_celeba(
+    root_dir="datasets/raw/celeba",
+    split="train",
+    image_size=64,
+    crop_size=140,
+    crop_type="center_crop",
+    interpolation="bilinear",
+    norm_range="[-1, 1]",
+    mean=None,
+    std=None,
+    hflip=None,
+    flip_prob=0.5,
+    target_attr="Smiling",
+    is_conditional=False
+):
     transform = get_celeba_transforms(
         split=split,
         image_size=image_size,
         crop_size=crop_size,
+        crop_type=crop_type,
+        interpolation=interpolation,
         norm_range=norm_range,
-        hflip=(split == "train")
+        mean=mean,
+        std=std,
+        hflip=hflip,
+        flip_prob=flip_prob
     )
     return CelebADataset(
         root_dir=root_dir,
