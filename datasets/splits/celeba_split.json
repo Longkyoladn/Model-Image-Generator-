@@ -1,0 +1,11 @@
+{
+  "dataset": "celeba",
+  "seed": 42,
+  "partition_standard": "official_list_eval_partition",
+  "total_samples": 202599,
+  "train_count": 162770,
+  "val_count": 19867,
+  "test_count": 19962,
+  "description": "CelebA sử dụng phân vùng chuẩn chính thức từ file list_eval_partition.txt (0=Train, 1=Val, 2=Test) theo đúng chuẩn bài báo gốc."
+}
+
