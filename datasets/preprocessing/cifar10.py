@@ -47,7 +47,15 @@ def load_cifar10(root_dir="datasets/raw/cifar10", split="train", image_size=32, 
         transform=get_cifar10_transforms(split="test", image_size=image_size, norm_range=norm_range, hflip=False)
     )
     
-    split_meta = create_or_load_split("cifar10", total_train_size=len(train_full), total_test_size=len(test_full), val_size=5000, seed=42)
+    # Tạo hoặc nạp split cố định phân tầng (stratified, seed 42)
+    split_meta = create_or_load_split(
+        "cifar10",
+        total_train_size=len(train_full),
+        total_test_size=len(test_full),
+        val_size=5000,
+        seed=42,
+        labels=train_full.targets
+    )
     
     if split == "train":
         return Subset(train_full, split_meta["train_indices"])

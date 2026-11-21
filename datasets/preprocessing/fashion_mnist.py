@@ -62,8 +62,15 @@ def load_fashion_mnist(root_dir="datasets/raw/fashion_mnist", split="train", ima
         transform=get_fashion_mnist_transforms(split="test", image_size=image_size, norm_range=norm_range, hflip=False)
     )
     
-    # Tạo hoặc nạp split cố định (seed 42)
-    split_meta = create_or_load_split("fashion_mnist", total_train_size=len(train_full), total_test_size=len(test_full), val_size=10000, seed=42)
+    # Tạo hoặc nạp split cố định phân tầng (stratified, seed 42)
+    split_meta = create_or_load_split(
+        "fashion_mnist",
+        total_train_size=len(train_full),
+        total_test_size=len(test_full),
+        val_size=10000,
+        seed=42,
+        labels=train_full.targets
+    )
     
     if split == "train":
         return Subset(train_full, split_meta["train_indices"])
