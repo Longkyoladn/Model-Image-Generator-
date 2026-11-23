@@ -143,3 +143,27 @@ for images, labels in train_loader:
 # Thư mục dữ liệu tự động nằm tại: /kaggle/input/celeba-dataset/
 train_loader, _ = build_dataloader("configs/datasets/celeba.yaml", split="train", batch_size=64)
 ```
+
+---
+
+## 4. Xuất thư mục ảnh thật tham chiếu (Reference Real Images - Mục 2.6 & 3.1)
+
+Phục vụ tính **FID sàn (Real-to-Real FID baseline)** và **Cache Inception Statistics** cho Quân (phụ trách evaluation):
+* Định dạng: File `.png` uint8 `[0, 255]` (`round(clamp(x) * 255)`).
+* Không áp dụng augmentation (`horizontal_flip=False` cho mọi split).
+* Kích thước chuẩn: Fashion-MNIST ($32\times32$, 3 kênh RGB lặp), CIFAR-10 ($32\times32$ RGB), CelebA ($64\times64$ RGB CenterCrop 140).
+
+### Lệnh thực thi:
+```bash
+# Xuất tất cả các dataset và splits (train, val, test)
+python scripts/export_reference_images.py
+
+# Xuất riêng từng dataset:
+python scripts/export_reference_images.py --dataset fashion_mnist
+python scripts/export_reference_images.py --dataset cifar10
+python scripts/export_reference_images.py --dataset celeba
+
+# Xuất thử nghiệm nhanh (ví dụ 100 ảnh val của Fashion-MNIST):
+python scripts/export_reference_images.py --dataset fashion_mnist --split val --max_samples 100
+```
+Kết quả được lưu vào `outputs/reference/<dataset>/<split>/` kèm file `metadata.json` và `labels.json` (được cấu hình tự động bỏ qua trong `.gitignore`).
