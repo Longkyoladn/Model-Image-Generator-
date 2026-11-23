@@ -24,17 +24,15 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem configs/common.py
 
+from configs.common import git_commit, normalize_config, sync  # noqa: E402
 from models.interface import load_trainer  # noqa: E402
 
 
@@ -46,30 +44,6 @@ def device_key(device: torch.device, num_gpus: int = 1) -> str:
     return name if num_gpus <= 1 else f"{name} x{num_gpus}"
 
 
-def normalize_config(config: str) -> str:
-    """Đường dẫn config dạng posix, tương đối với gốc repo nếu có thể."""
-    path = Path(config)
-    if path.exists():
-        try:
-            return path.resolve().relative_to(ROOT).as_posix()
-        except ValueError:
-            pass
-    return str(config).replace("\\", "/").removeprefix("./")
-
-
-def _sync(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-
-
-def _git_commit() -> str | None:
-    try:
-        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True)
-        return out.stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return None
-
-
 def calibrate(model: str, config: str, device: str | None = None, warmup: int = 20, steps: int = 200,
               seed: int = 0, module: str | None = None) -> dict:
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -79,11 +53,11 @@ def calibrate(model: str, config: str, device: str | None = None, warmup: int = 
 
     for _ in range(warmup):
         trainer.train_step(batch)
-    _sync(dev)
+    sync(dev)
     start = time.perf_counter()
     for _ in range(steps):
         trainer.train_step(batch)
-    _sync(dev)
+    sync(dev)
     elapsed = time.perf_counter() - start
 
     num_gpus = int(getattr(trainer, "num_gpus", 1))
@@ -97,7 +71,7 @@ def calibrate(model: str, config: str, device: str | None = None, warmup: int = 
         "precision": getattr(trainer, "precision", "fp32"),
         "warmup_steps": warmup,
         "measured_steps": steps,
-        "elapsed_s": elapsed,
+        "elapsed_s": elapsed,  # là tổng thời gian thực để chạy steps bước train đo được(số bước step train được tính mặc định là 200, còn không thì hoàn toàn có thể được cập nhập )
         "step_time_ms": elapsed / steps * 1000,
         "throughput_img_s": steps * trainer.batch_size / elapsed,
         "env": {
@@ -106,7 +80,7 @@ def calibrate(model: str, config: str, device: str | None = None, warmup: int = 
             "cudnn_benchmark": torch.backends.cudnn.benchmark,
             "python": platform.python_version(),
         },
-        "commit": _git_commit(),
+        "commit": git_commit(),
     }
 
 

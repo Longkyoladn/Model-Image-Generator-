@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import subprocess
 import sys
 import warnings
 from importlib.metadata import PackageNotFoundError, version
@@ -32,19 +31,10 @@ from pathlib import Path
 
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # gốc repo, xem configs/common.py
 
+from configs.common import git_commit  # noqa: E402
 from models.interface import SAMPLING_ROLE, check_roles, load_model  # noqa: E402
-
-
-def _git_commit() -> str | None:
-    try:
-        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True)
-        return out.stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return None
 
 
 def _tool_version(tool: str) -> str:
@@ -151,7 +141,7 @@ def main() -> None:
         "tool": args.tool,
         "tool_version": tool_version,
         "macs_convention": "1 MAC = 1 phép nhân-cộng; FLOPs = 2 × MACs",
-        "commit": _git_commit(),
+        "commit": git_commit(),
         **result,
     }
     out_dir = Path(args.output_dir)

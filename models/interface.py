@@ -251,7 +251,8 @@ def check_contract(model: GenerativeModel, n: int = 2, **kwargs) -> None:
         problems.append(
             f"giá trị trong [{a.min().item():.3f}, {a.max().item():.3f}], cần [0, 1]"
         )
-    if a.device.type != model.device.type:
+    # So sánh cả chỉ số GPU (cuda:0 khác cuda:1), không chỉ loại device.
+    if a.device != model.device:
         problems.append(f"ảnh nằm trên {a.device}, mô hình nằm trên {model.device}")
     if not problems:
         b = model.sample(n, seed=0, **kwargs)
