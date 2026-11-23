@@ -1,0 +1,23 @@
+batch_size: 64
+checkpoint: outputs\checkpoints\cifar10\vae\vae_smoke_run\best.pt
+commit: 8927b27d200a05c0c35022fbfd53a632e8cd38d9
+config: configs/vae/cifar10/base.yaml
+curve:
+- hardware_hours:
+    cpu: 0.0008
+  kid_val_mean: 0.05
+  step: 20
+dataset: cifar10
+eval_config: configs/eval/fid.yaml
+hardware:
+- device: cpu
+  train_hours: 0.0008
+image_size: 32
+kind: run
+model: vae
+num_samples: 5000
+precision: fp32
+run_name: vae_smoke_run
+seed: 42
+stage: overfit
+train_steps: 20
