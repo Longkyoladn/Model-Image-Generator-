@@ -1,92 +1,128 @@
-## 1. Cài đặt môi trường
+# Hướng dẫn sử dụng Pipeline Đánh giá (Evaluation Pipeline)
 
-Đảm bảo đã cài đặt các thư viện sau:
-pip install torch torchvision scipy lpips pytorch-msssim imageio
+Tài liệu hướng dẫn chạy các công cụ đánh giá chất lượng ảnh, độ đa dạng và so sánh mô hình theo quy chuẩn `TASK_ASSIGNMENT.md` (mục 2.6 và 4.2).
 
-## 2
+---
 
-### 2.1. fid.py - Đánh giá FID
+## 1. Cấu hình đánh giá chung (`configs/eval/fid.yaml`)
 
-Chức năng: Tính Frechet Inception Distance giữa tập ảnh thật và tập ảnh sinh.
+Cả ba mô hình (VAE, DCGAN, DDPM) đều dùng chung cấu hình tại `configs/eval/fid.yaml`:
+- **Thư viện**: `clean-fid` (mode `clean`), mạng InceptionV3 2048-d pool3.
+- **Batch size trích đặc trưng**: 100.
+- **KID**: `subset_size = 1000`, `num_subsets = 100`.
+- **PRDC**: $k = 5$ trên 10.000 ảnh.
+- **LPIPS**: Backbone AlexNet trên 2.000 cặp ảnh ngẫu nhiên.
+- **Format ảnh**: PNG uint8 (`round(clamp(x) * 255)`). Không lưu JPEG.
 
-Đặc điểm: Tự động xử lý ảnh 1 kênh (Fashion-MNIST) bằng cách nhân bản thành 3 kênh. Có cơ chế cache thống kê (mean, covariance) của ảnh thật để không phải tính lại nhiều lần.
+---
 
-Cách dùng:
+## 2. Dùng trong Giai đoạn 1 — Tuning ngắn (KID-5k trên validation)
 
-from evaluation.fid import FIDCalculator
+Khi thử nghiệm các siêu tham số, mỗi mô hình sinh **5.000 ảnh** và đánh giá KID trên tập **validation** để chọn ra cấu hình tốt nhất:
 
-fid_calc = FIDCalculator(device='cuda', cache_dir='outputs/metrics/cache')
-real_loader và fake_loader là torch.utils.data.DataLoader
-fid_score = fid_calc.calculate_fid(real_loader, fake_loader, dataset_name="cifar10")
-print(f"FID Score: {fid_score}")
+```python
+from evaluation.fid import calculate_kid_tuning
 
-Tính FID theo từng class (Conditional)
-class_fids, mean_fid = fid_calc.calculate_fid_per_class(
-    real_loader, fake_loader, class_indices=[0, 1, 2], use_cache=True
-)
-print(f"Mean FID across classes: {mean_fid}")
-
-### 2.2. diversity.py - Đánh giá độ đa dạng
-
-Chức năng: Đo độ đa dạng của tập ảnh sinh ra.
-
-Phương pháp:
-
-calculate_feature_diversity: Đo phương sai trong không gian đặc trưng (Feature Space Variance).
-
-calculate_lpips_diversity: Đo khoảng cách tri giác giữa các cặp ảnh (LPIPS).
-
-calculate_ms_ssim: Đo độ tương đồng cấu trúc đa tỉ lệ (MS-SSIM). Giá trị càng thấp thì ảnh càng đa dạng.
-
-Cách dùng:
-
-from evaluation.diversity import DiversityCalculator
-
-div_calc = DiversityCalculator(device='cuda')
-fake_images là tensor (N, C, H, W)
-diversity_score = div_calc.calculate_lpips_diversity(fake_images)
-ms_ssim_score = div_calc.calculate_ms_ssim(fake_images)
-
-print(f"LPIPS Diversity: {diversity_score}")
-print(f"MS-SSIM (lower is more diverse): {ms_ssim_score}")
-
-###  2.3. interpolation.py - Nội suy Latent Space
-
-Chức năng: Tạo hiệu ứng chuyển cảnh mượt mà giữa 2 vector latent (z1, z2) để kiểm tra tính liên tục của không gian ẩn.
-
-Phương pháp: Hỗ trợ nội suy tuyến tính (Linear) và nội suy cầu (Slerp). Hỗ trợ cả Conditional (cùng lớp hoặc khác lớp).
-
-Cách dùng:
-
-python
-from evaluation.interpolation import make_conditional_interpolation_grid
-
-z1, z2 là các vector latent ngẫu nhiên
-mode="same_class" để giữ nguyên nhãn, mode="diff_class" để chuyển đổi nhãn
-grid = make_conditional_interpolation_grid(
-    model, z1, z2, label1=3, label2=5, steps=8, method="slerp", mode="diff_class"
+# fake_dir: Thư mục chứa 5000 ảnh PNG sinh ra từ checkpoint tuning
+# val_dir: Thư mục chứa ảnh validation thật đã preprocess (không augmentation)
+results = calculate_kid_tuning(
+    fake_dir="outputs/samples/cifar10/vae/tuning_run_1",
+    val_dir="datasets/splits/cifar10/val",
+    dataset="cifar10",
+    resolution=32,
+    device="cuda", # hoặc "cpu"
 )
 
-Lưu grid ảnh (grid là tensor)
-import torchvision.utils as vutils
-vutils.save_image(grid, "outputs/samples/interpolation_grid.png")
+print(f"KID Val Mean: {results['kid_val_mean']:.6f} ± {results['kid_val_std']:.6f}")
+```
 
-## 3. Quy trình chạy Benchmark tổng thể
+Kết quả `kid_val_mean` được ghi vào `metrics.kid_val_mean` của file run metadata giai đoạn tuning.
 
-Sử dụng script scripts/run_benchmark.py để chạy đánh giá và xuất kết quả ra file JSON.
+---
 
-Kết quả đầu ra (outputs/metrics/benchmark_results.json) sẽ có cấu trúc:
+## 3. Dùng trong Giai đoạn 2 — Đánh giá cuối (Bảng chính & baseline)
 
-json
-```text
-{
-    "dataset": "cifar10",
-    "model": "dcgan",
-    "checkpoint": "path/to/ckpt",
-    "seed": 42,
-    "fid": 25.3,
-    "diversity_lpips": 0.45,
-    "diversity_ms_ssim": 0.62,
-    "timestamp": "2023-10-27T10:00:00"
-}
+Mỗi mô hình sinh **50.000 ảnh** (với seed thống nhất), lưu vào một thư mục PNG.
+Chạy script `evaluation/run_quality.py` để tự động tính toàn bộ các metric và sinh 2 file JSON chuẩn:
+
+### 3.1. Chạy cho dòng chính (VAE, DCGAN, DDPM DDIM 100)
+```bash
+python evaluation/run_quality.py \
+  --model vae \
+  --dataset cifar10 \
+  --run-name vae_base \
+  --fake outputs/samples/cifar10/vae/vae_base \
+  --train datasets/splits/cifar10/train \
+  --test datasets/splits/cifar10/test \
+  --resolution 32 \
+  --device cuda
+```
+Đối với DDPM (DDIM 100 step):
+```bash
+python evaluation/run_quality.py \
+  --model ddpm \
+  --dataset cifar10 \
+  --run-name ddpm_base \
+  --label ddim100 \
+  --sampler ddim \
+  --steps 100 \
+  --fake outputs/samples/cifar10/ddpm/ddpm_base__ddim100 \
+  --train datasets/splits/cifar10/train \
+  --test datasets/splits/cifar10/test \
+  --resolution 32 \
+  --device cuda
+```
+
+### 3.2. Chạy cho dòng phụ DDPM (DDPM 500 step - so sánh sampler)
+```bash
+python evaluation/run_quality.py \
+  --model ddpm \
+  --dataset cifar10 \
+  --run-name ddpm_base \
+  --label ddpm500 \
+  --sampler ddpm \
+  --steps 500 \
+  --comparison sampler \
+  --fake outputs/samples/cifar10/ddpm/ddpm_base__ddpm500 \
+  --train datasets/splits/cifar10/train \
+  --test datasets/splits/cifar10/test \
+  --resolution 32 \
+  --device cuda
+```
+
+Output tự động xuất ra:
+- `outputs/metrics/quality/<dataset>__<model>__<run_name>[__<label>].json`
+- `outputs/metrics/real_baseline/<dataset>.json`
+
+---
+
+## 4. Kiểm tra học thuộc — Nearest Neighbors (`nearest_neighbor.png`)
+
+Sinh lưới 32 hàng × 4 cột (mỗi hàng gồm 1 ảnh sinh + 3 ảnh train gần nhất):
+
+```python
+from evaluation.fid import render_nearest_neighbors
+
+render_nearest_neighbors(
+    fake_dir="outputs/samples/cifar10/vae/vae_base",
+    train_dir="datasets/splits/cifar10/train",
+    output_path="outputs/figures/cifar10/vae__vae_base/nearest_neighbor.png",
+    num_samples=32,
+    num_neighbors=3,
+    device="cuda",
+)
+```
+
+---
+
+## 5. Đo độ đa dạng riêng lẻ (`evaluation/diversity.py`)
+
+```python
+from evaluation.diversity import calculate_lpips_diversity, calculate_prdc
+
+# LPIPS giữa 2000 cặp ảnh sinh
+lpips_score = calculate_lpips_diversity("outputs/samples/cifar10/vae/vae_base", num_pairs=2000, device="cuda")
+
+# PRDC (Precision, Recall, Density, Coverage)
+prdc_scores = calculate_prdc(real_features, fake_features, nearest_k=5)
 ```

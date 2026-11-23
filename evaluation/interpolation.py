@@ -1,113 +1,207 @@
+"""Latent Space Interpolation utilities cho VAE, DCGAN và DDPM.
+
+Triển khai quy chuẩn đặc tả trong evaluation/interpolation_spec.md:
+- LERP (Linear Interpolation) và SLERP (Spherical Linear Interpolation).
+- Chuỗi chuyển tiếp chuẩn 10 bước.
+- Hỗ trợ nội suy prior z và nội suy giữa 2 ảnh test thật qua vector mu (dành cho VAE).
+- Xuất lưới ảnh chuẩn bằng save_grid từ scripts/render_samples.py.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Literal
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-import imageio
-import os
+from PIL import Image
 
-def linear_interpolate(z1, z2, steps=8):
-    """Nội suy tuyến tính giữa 2 vector latent."""
-    alphas = torch.linspace(0, 1, steps, device=z1.device).view(-1, 1)
-    return z1.unsqueeze(0) * (1 - alphas) + z2.unsqueeze(0) * alphas
+import sys
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-def slerp(z1, z2, steps=8, eps=1e-8):
-    """Nội suy cầu (Spherical Linear Interpolation) — mượt hơn linear với VAE/GAN."""
-    # Chuẩn hóa để tính góc
-    z1_norm_val = z1.norm()
-    z2_norm_val = z2.norm()
-    z1_n = z1 / (z1_norm_val + eps)
-    z2_n = z2 / (z2_norm_val + eps)
+from scripts.render_samples import save_grid
+
+
+def linear_interpolate(z1: torch.Tensor, z2: torch.Tensor, steps: int = 10) -> torch.Tensor:
+    """Nội suy tuyến tính (LERP) giữa 2 vector hoặc 2 batch vector latent.
     
-    dot = torch.clamp((z1_n * z2_n).sum(), -1.0, 1.0)
-    omega = torch.acos(dot)
-    sin_omega = torch.sin(omega) + eps
+    Args:
+        z1: Điểm bắt đầu (D,) hoặc (B, D).
+        z2: Điểm kết thúc (D,) hoặc (B, D).
+        steps: Số bước nội suy (mặc định 10).
+        
+    Returns:
+        Tensor có shape (steps, D) hoặc (steps, B, D).
+    """
+    alphas = torch.linspace(0.0, 1.0, steps, device=z1.device, dtype=z1.dtype)
+    while alphas.ndim < z1.ndim + 1:
+        alphas = alphas.unsqueeze(-1)
+    # z1.unsqueeze(0): (1, ...), alphas: (steps, 1, ...)
+    return z1.unsqueeze(0) * (1.0 - alphas) + z2.unsqueeze(0) * alphas
 
-    alphas = torch.linspace(0, 1, steps, device=z1.device)
+
+def slerp(z1: torch.Tensor, z2: torch.Tensor, steps: int = 10, eps: float = 1e-7) -> torch.Tensor:
+    """Nội suy cầu (Spherical Linear Interpolation - SLERP) bảo toàn chuẩn vector.
+    
+    Args:
+        z1: Điểm bắt đầu (D,) hoặc (1, D).
+        z2: Điểm kết thúc (D,) hoặc (1, D).
+        steps: Số bước nội suy (mặc định 10).
+        eps: Ngưỡng số học tránh chia cho 0.
+        
+    Returns:
+        Tensor có shape (steps, D) hoặc (steps, 1, D).
+    """
+    orig_shape = z1.shape
+    v1 = z1.view(-1).float()
+    v2 = z2.view(-1).float()
+
+    norm1 = torch.norm(v1)
+    norm2 = torch.norm(v2)
+
+    u1 = v1 / (norm1 + eps)
+    u2 = v2 / (norm2 + eps)
+
+    dot = torch.clamp(torch.dot(u1, u2), -1.0, 1.0)
+    omega = torch.acos(dot)
+
+    alphas = torch.linspace(0.0, 1.0, steps, device=z1.device)
     zs = []
+
+    # Nếu góc quá nhỏ (gần song song), lùi về tuyến tính LERP
+    if omega.abs() < eps or torch.sin(omega).abs() < eps:
+        for a in alphas:
+            z = v1 * (1.0 - a) + v2 * a
+            zs.append(z.view(orig_shape))
+        return torch.stack(zs)
+
+    sin_omega = torch.sin(omega)
     for a in alphas:
-        if omega.abs() < eps:
-            z = z1 * (1 - a) + z2 * a
-        else:
-            # Nội suy hướng (slerp) và nội suy độ dài (lerp)
-            dir_interp = (torch.sin((1 - a) * omega) / sin_omega) * z1_n + (torch.sin(a * omega) / sin_omega) * z2_n
-            norm_interp = z1_norm_val * (1 - a) + z2_norm_val * a
-            z = dir_interp * norm_interp
-        zs.append(z)
+        dir_interp = (torch.sin((1.0 - a) * omega) / sin_omega) * u1 + (torch.sin(a * omega) / sin_omega) * u2
+        norm_interp = norm1 * (1.0 - a) + norm2 * a
+        z = dir_interp * norm_interp
+        zs.append(z.to(z1.dtype).view(orig_shape))
+
     return torch.stack(zs)
 
-def make_interpolation_grid(model, z1, z2, steps=8, method="slerp"):
-    """Sinh ảnh nội suy và ghép thành grid ngang."""
+
+def interpolate_latent_sequence(
+    model,
+    z1: torch.Tensor,
+    z2: torch.Tensor,
+    steps: int = 10,
+    method: Literal["slerp", "lerp"] = "slerp",
+) -> torch.Tensor:
+    """Nội suy chuỗi z và giải mã thành tensor ảnh (steps, C, H, W) trong [0, 1]."""
     if method == "slerp":
-        zs = slerp(z1, z2, steps)
+        zs = slerp(z1, z2, steps=steps)
     else:
-        zs = linear_interpolate(z1, z2, steps)
+        zs = linear_interpolate(z1, z2, steps=steps)
+
+    # Đảm bảo shape (steps, latent_dim)
+    if zs.ndim == 3 and zs.size(1) == 1:
+        zs = zs.squeeze(1)
 
     with torch.no_grad():
-        imgs = model.decode(zs)  # giả định model có hàm decode(z)
-    # imgs: (steps, C, H, W) trong [0, 1] hoặc [-1, 1]
-    imgs = (imgs.clamp(-1, 1) + 1) / 2 if imgs.min() < 0 else imgs.clamp(0, 1)
-    grid = torch.cat([imgs[i] for i in range(steps)], dim=-1)  # nối ngang
-    return grid
+        if hasattr(model, "decoder"):
+            recon = model.decoder(zs)
+        elif hasattr(model, "decode"):
+            recon = model.decode(zs)
+        else:
+            raise AttributeError("Mô hình không có decoder hoặc decode(z).")
 
-def save_interpolation_gif(model, z1, z2, steps=16, method="slerp", path="outputs/samples/interp.gif"):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if method == "slerp":
-        zs = slerp(z1, z2, steps)
+    # Đưa về [0, 1]
+    if recon.min() < 0:
+        recon = ((recon + 1.0) / 2.0).clamp(0.0, 1.0)
     else:
-        zs = linear_interpolate(z1, z2, steps)
+        recon = recon.clamp(0.0, 1.0)
 
-    with torch.no_grad():
-        imgs = model.decode(zs)
-    imgs = (imgs.clamp(-1, 1) + 1) / 2 if imgs.min() < 0 else imgs.clamp(0, 1)
-    frames = (imgs.permute(0, 2, 3, 1).cpu().numpy() * 255).astype("uint8")
-    imageio.mimsave(path, frames, fps=4)
+    return recon
 
-def make_conditional_interpolation_grid(model, z1, z2, label1, label2, steps=8, method="slerp", mode="same_class"):
+
+def interpolate_vae_images(
+    model,
+    img1: torch.Tensor,
+    img2: torch.Tensor,
+    steps: int = 10,
+    method: Literal["slerp", "lerp"] = "slerp",
+) -> torch.Tensor:
+    """Nội suy giữa 2 ảnh thật thông qua vector trung bình mu của Encoder.
+    
+    img1, img2: Tensor ảnh đầu vào (1, C, H, W) hoặc (C, H, W).
     """
-    Sinh ảnh nội suy có điều kiện (Conditional).
-    mode="same_class": label cố định là label1 cho toàn bộ quá trình.
-    mode="diff_class": label nội suy từ label1 sang label2 (dùng one-hot).
-    """
-    if method == "slerp":
-        zs = slerp(z1, z2, steps)
-    else:
-        zs = linear_interpolate(z1, z2, steps)
+    if img1.ndim == 3:
+        img1 = img1.unsqueeze(0)
+    if img2.ndim == 3:
+        img2 = img2.unsqueeze(0)
 
-    # Xử lý labels
-    if mode == "same_class":
-        # Tất cả ảnh dùng chung label1
-        labels = torch.full((steps,), label1, dtype=torch.long, device=z1.device)
-    elif mode == "diff_class":
-        # Nội suy label (dùng one-hot để nội suy mượt)
-        # Giả sử num_classes là 10
-        num_classes = 10 
-        one_hot1 = F.one_hot(torch.tensor([label1]), num_classes=num_classes).float().to(z1.device)
-        one_hot2 = F.one_hot(torch.tensor([label2]), num_classes=num_classes).float().to(z1.device)
-        
-        alphas = torch.linspace(0, 1, steps, device=z1.device).view(-1, 1)
-        mixed_one_hot = one_hot1 * (1 - alphas) + one_hot2 * alphas
-        
-        # Lấy argmax để quay về nhãn rời rạc (vì model thường nhận label rời rạc)
-        # Hoặc nếu model hỗ trợ nhận one-hot trực tiếp thì truyền mixed_one_hot vào.
-        labels = torch.argmax(mixed_one_hot, dim=1)
+    # Nếu ảnh ở [0, 1], chuyển sang [-1, 1] cho Encoder
+    if img1.min() >= 0:
+        img1_enc = img1 * 2.0 - 1.0
     else:
-        raise ValueError("mode must be 'same_class' or 'diff_class'")
+        img1_enc = img1
+
+    if img2.min() >= 0:
+        img2_enc = img2 * 2.0 - 1.0
+    else:
+        img2_enc = img2
 
     with torch.no_grad():
-        # Truyền thêm labels vào hàm decode
-        if model_type == "ddpm":
-            # zs lúc này đóng vai trò là nhiễu x_T
-            try:
-                imgs = model.sample_from_noise(zs, labels)
-            except AttributeError:
-                # Nếu model chưa có hàm sample_from_noise, gọi hàm helper
-                imgs = ddpm_sampling_wrapper(model, zs, labels)
-        else :
-            try:
-                imgs = model.decode(zs, labels)
-            except TypeError:
-                # Fallback nếu model không nhận label (như VAE thường)
-                print("Model.decode does not accept labels. Falling back to unconditional decode.")
-                imgs = model.decode(zs)
-            
-    imgs = (imgs.clamp(-1, 1) + 1) / 2 if imgs.min() < 0 else imgs.clamp(0, 1)
-    grid = torch.cat([imgs[i] for i in range(steps)], dim=-1)
-    return grid
+        mu1, _ = model.encode(img1_enc)
+        mu2, _ = model.encode(img2_enc)
+
+    return interpolate_latent_sequence(model, mu1, mu2, steps=steps, method=method)
+
+
+def render_vae_interpolation_grid(
+    model,
+    output_path: str | Path,
+    test_images: tuple[torch.Tensor, torch.Tensor] | None = None,
+    latent_dim: int = 128,
+    seed1: int = 42,
+    seed2: int = 100,
+    steps: int = 10,
+) -> Path:
+    """Tạo lưới ảnh nội suy hoàn chỉnh theo mục 3.1 & 4.2 của TASK_ASSIGNMENT.md.
+    
+    Gồm:
+    - Hàng 1: SLERP prior z1 -> z2 (random Gaussian).
+    - Hàng 2: LERP prior z1 -> z2 (random Gaussian).
+    - Hàng 3 (tùy chọn nếu có ảnh test): SLERP giữa 2 ảnh test thật.
+    - Hàng 4 (tùy chọn nếu có ảnh test): LERP giữa 2 ảnh test thật.
+    """
+    dev = model.device
+    model.eval()
+
+    # Tạo vector z1 và z2 cố định từ 2 seed
+    g1 = torch.Generator(device=dev).manual_seed(seed1)
+    g2 = torch.Generator(device=dev).manual_seed(seed2)
+    z1 = torch.randn(latent_dim, device=dev, generator=g1)
+    z2 = torch.randn(latent_dim, device=dev, generator=g2)
+
+    rows = []
+    # 1. SLERP prior z
+    seq_slerp_z = interpolate_latent_sequence(model, z1, z2, steps=steps, method="slerp")
+    rows.append(seq_slerp_z)
+
+    # 2. LERP prior z
+    seq_lerp_z = interpolate_latent_sequence(model, z1, z2, steps=steps, method="lerp")
+    rows.append(seq_lerp_z)
+
+    # 3. Nếu có ảnh test thật, nội suy giữa mu1 và mu2
+    if test_images is not None:
+        t1, t2 = test_images
+        t1 = t1.to(dev)
+        t2 = t2.to(dev)
+        seq_slerp_img = interpolate_vae_images(model, t1, t2, steps=steps, method="slerp")
+        seq_lerp_img = interpolate_vae_images(model, t1, t2, steps=steps, method="lerp")
+        rows.append(seq_slerp_img)
+        rows.append(seq_lerp_img)
+
+    all_images = torch.cat(rows, dim=0)  # (N_rows * 10, C, H, W)
+    out = save_grid(all_images, output_path, nrow=steps)
+    return out
