@@ -105,8 +105,12 @@ def build_trainer(config: str, device: str = "cpu") -> Trainer:
         cfg = yaml.safe_load(f)
 
     # Đọc các thông số từ file YAML
-    dataset_name = cfg.get("dataset", "cifar10")
-    image_shape = tuple(cfg.get("image_shape", DATASET_SHAPES.get(dataset_name, (3, 32, 32))))
+    ds = cfg.get("dataset", "cifar10")
+    dataset_name = ds.get("name", "cifar10") if isinstance(ds, dict) else str(ds)
+    shape_val = cfg.get("image_shape")
+    if shape_val is None and isinstance(ds, dict):
+        shape_val = ds.get("image_shape")
+    image_shape = tuple(shape_val or DATASET_SHAPES.get(dataset_name, (3, 32, 32)))
     model_cfg = cfg.get("model", {})
     train_cfg = cfg.get("training", {})
 
