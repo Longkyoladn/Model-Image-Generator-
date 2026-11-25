@@ -1,0 +1,20 @@
+# Spec kiểm tra benchmark và speed cho DCGAN (mục 4.4 và scripts/smoke_test_benchmark.py)
+
+dataset: cifar10
+precision: fp32
+batch_sizes: [1, 64]
+warmup: 2
+repeats: 5
+seed: 0
+
+smoke:
+  batch_sizes: [1, 4]
+  warmup: 2
+  repeats: 2
+  num_quality_images: 200
+
+targets:
+  - model: dcgan
+    checkpoint: auto
+    run_name: dcgan_cifar10_base
+    trainer_config: "configs/dcgan/cifar10/base.yaml"

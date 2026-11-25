@@ -23,6 +23,11 @@ outputs/checkpoints/
 *.ckpt
 *.onnx
 
+# Reference real images for evaluation (Mục 2.6 / 3.1)
+outputs/reference/
+data/reference/
+datasets/reference/
+
 # Generated samples from experimental runs (ngoại trừ ảnh báo cáo nhỏ trong outputs/data_analysis/)
 outputs/samples/**/images/
 outputs/samples/**/*.png
