@@ -1,0 +1,15 @@
+# Cấu hình huấn luyện VAE trên tập CelebA
+dataset: "celeba"
+image_shape: [3, 64, 64]
+latent_dim: 256
+base_channels: 32
+
+training:
+  batch_size: 64
+  learning_rate: 0.0002
+  beta: 1.0
+  precision: "fp32"
+  epochs: 50
+  loss_type: "mse"
+  save_interval: 10
+  seed: 42

@@ -1,0 +1,20 @@
+# Cấu hình đánh giá chất lượng và độ đa dạng theo TASK_ASSIGNMENT.md (mục 2.6)
+# Khớp 100% với FID_CONFIG_EXPECTED trong scripts/smoke_test_benchmark.py
+
+library: "clean-fid"
+mode: "clean"
+feature_extractor: "inception_v3"
+feature_dim: 2048
+feature_batch_size: 100
+num_gen_final: 50000
+num_gen_tuning: 5000
+fid_test_splits: 5
+fid_test_num_gen: 10000
+kid_subset_size: 1000
+kid_num_subsets: 100
+prdc_k: 5
+prdc_num: 10000
+lpips_net: "alex"
+lpips_pairs: 2000
+sampler_compare_num_gen: 10000
+image_format: "png"
