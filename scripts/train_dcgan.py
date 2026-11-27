@@ -80,6 +80,12 @@ def parse_args():
         help="Giới hạn số bước train tối đa mỗi epoch (tiện lợi cho dry-run / test)",
     )
     parser.add_argument(
+        "--overfit_samples",
+        type=int,
+        default=None,
+        help="Lấy cố định N ảnh đầu của tập train (64-512) cho bài kiểm tra Overfit (Mục 2.3 Giai đoạn 0)",
+    )
+    parser.add_argument(
         "--batch_size",
         type=int,
         default=None,
@@ -190,7 +196,19 @@ def main():
         shuffle=True,
         num_workers=num_workers,
     )
-    print(f" - Số lượng mẫu train: {len(train_ds):,} ảnh ({len(train_loader)} batches/epoch)")
+    if args.overfit_samples is not None and args.overfit_samples > 0:
+        n_sub = min(args.overfit_samples, len(train_ds))
+        train_ds = torch.utils.data.Subset(train_ds, list(range(n_sub)))
+        train_loader = torch.utils.data.DataLoader(
+            train_ds,
+            batch_size=min(batch_size, n_sub),
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=(device.type == "cuda"),
+        )
+        print(f" - [Chế độ Overfit Mục 2.3] Cắt cố định {n_sub:,} ảnh đầu ({len(train_loader)} batches/epoch)")
+    else:
+        print(f" - Số lượng mẫu train: {len(train_ds):,} ảnh ({len(train_loader)} batches/epoch)")
 
     # 3. Khởi tạo mô hình DCGAN
     model = DCGAN(
@@ -213,6 +231,8 @@ def main():
     start_epoch = 1
     total_steps = 0
     total_train_seconds = 0.0
+    dev_str = device_key(device)
+    checkpoint_history = []
 
     # 4. Hỗ trợ Resume nếu có checkpoint
     if args.resume:
@@ -376,6 +396,12 @@ def main():
                 ckpt_path = ckpt_dir / f"checkpoint_epoch_{epoch:03d}.pt"
                 torch.save(ckpt_data, ckpt_path)
                 torch.save(ckpt_data, ckpt_dir / "checkpoint_latest.pt")
+                checkpoint_history.append({
+                    "epoch": epoch,
+                    "step": total_steps,
+                    "checkpoint": ckpt_path.name,
+                    "hardware_hours": {dev_str: round(total_train_seconds / 3600.0, 6)},
+                })
                 print(f"   💾 Đã lưu checkpoint: {ckpt_path}")
 
     finally:
@@ -405,7 +431,6 @@ def main():
     print(f"\n🎉 Huấn luyện hoàn tất! Checkpoint cuối cùng: {final_ckpt_path}")
 
     # Metadata run (schema chuẩn mục 4.3 trong TASK_ASSIGNMENT.md)
-    dev_str = device_key(device)
     train_hours = total_train_seconds / 3600.0
 
     metadata = {
@@ -433,7 +458,12 @@ def main():
     with open(meta_file, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
+    ckpt_hist_file = metric_dir / "checkpoints.json"
+    with open(ckpt_hist_file, "w", encoding="utf-8") as f:
+        json.dump(checkpoint_history, f, indent=2, ensure_ascii=False)
+
     print(f"📄 Metadata run lưu tại: {meta_file}")
+    print(f"📄 Lịch sử checkpoint (để điền curve KID) lưu tại: {ckpt_hist_file}")
     print("=" * 75)
 
 
