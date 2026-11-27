@@ -1,0 +1,34 @@
+# Tuning Config: Giảm Learning Rate (lr = 0.0001) cho CelebA (64x64)
+# Mục 2.3 trong TASK_ASSIGNMENT.md
+
+dataset:
+  name: celeba
+  image_shape: [3, 64, 64]
+  dataset_config: configs/datasets/celeba.yaml
+
+model:
+  name: dcgan
+  latent_dim: 100
+  generator_features: 64
+  discriminator_features: 64
+  d_steps: 1
+
+training:
+  batch_size: 64
+  epochs: 30
+  lr_d: 0.0001
+  lr_g: 0.0001
+  beta1: 0.5
+  beta2: 0.999
+  precision: fp32
+  label_smoothing: 0.9
+  seed: 42
+  num_workers: 2
+
+logging:
+  save_every_epochs: 2
+  sample_every_epochs: 1
+  num_fixed_samples: 64
+  checkpoint_dir: outputs/checkpoints/dcgan/celeba/lr_0001
+  sample_dir: outputs/samples/dcgan/celeba/lr_0001
+  metric_dir: outputs/metrics/dcgan/celeba/lr_0001
