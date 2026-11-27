@@ -53,7 +53,7 @@ def export_reference_split(
     print("=" * 75)
 
     # 1. Nạp file cấu hình dataset tương ứng
-    config_path = f"configs/datasets/{dataset_name}.yaml"
+    config_path = f"configs/datasets_config/{dataset_name}.yaml"
     try:
         cfg = load_yaml_config(config_path)
     except FileNotFoundError as e:

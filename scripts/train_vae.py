@@ -50,7 +50,7 @@ def main() -> None:
     trainer = load_trainer("vae", str(cfg_path), device=args.device)
 
     # Nạp dataloader tương ứng
-    ds_cfg_path = f"configs/datasets/{dataset}.yaml"
+    ds_cfg_path = f"configs/datasets_config/{dataset}.yaml"
     try:
         dataloader = build_dataloader(ds_cfg_path, split="train", batch_size=trainer.batch_size)
     except Exception as err:
