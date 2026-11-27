@@ -4,7 +4,7 @@
 dataset:
   name: cifar10
   image_shape: [3, 32, 32]
-  dataset_config: configs/datasets/cifar10.yaml
+  dataset_config: configs/datasets_config/cifar10.yaml
 
 model:
   name: dcgan

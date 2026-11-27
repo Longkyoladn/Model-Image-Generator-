@@ -28,7 +28,7 @@ Cấu trúc config đề xuất:
 
 ```text
 configs/
-  datasets/
+  datasets_config/
     celeba.yaml
     fashion_mnist.yaml
     cifar10.yaml
@@ -299,7 +299,7 @@ InceptionV3 được train trên ảnh màu tự nhiên nên feature cho ảnh q
 - Xây dựng preprocessing và dataloader riêng cho từng dataset.
 - Tạo split theo mục 2.1: giữ split chính thức của CelebA; với Fashion-MNIST và CIFAR-10 giữ test chính thức, tách validation stratified từ train chính thức. Lưu file index split.
 - Xuất thư mục ảnh thật tham chiếu (PNG uint8, đúng preprocessing, không augmentation) cho validation, test và train để dùng cho mục 2.6.
-- Tạo ba config dataset trong `configs/datasets/`.
+- Tạo ba config dataset trong `configs/datasets_config/`.
 - Trực quan hóa ảnh trước/sau preprocessing, phân phối lớp và batch mẫu.
 - Chuẩn bị notebook Colab/Kaggle có thể mount Drive hoặc attach Kaggle Dataset.
 - Hoàn thiện `datasets/README.md`; không đưa dataset vào Git.

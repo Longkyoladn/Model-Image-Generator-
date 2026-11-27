@@ -4,7 +4,7 @@
 dataset:
   name: fashion_mnist
   image_shape: [1, 32, 32]
-  dataset_config: configs/datasets/fashion_mnist.yaml
+  dataset_config: configs/datasets_config/fashion_mnist.yaml
 
 model:
   name: dcgan

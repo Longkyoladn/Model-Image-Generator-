@@ -10,29 +10,22 @@ from .celeba import load_celeba, CELEBA_ATTRIBUTES
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def load_yaml_config(config_path):
-    """
-    Nạp cấu hình YAML linh hoạt.
-    Ưu tiên đường dẫn chuẩn mục 3.1: configs/datasets/<dataset>.yaml,
-    đồng thời hỗ trợ đường dẫn cũ configs/datasets_config/<dataset>.yaml.
-    """
+    """Load dataset YAML, including paths used before the directory rename."""
     candidates = [
         config_path,
         os.path.join(PROJECT_ROOT, config_path),
     ]
-    norm_p = config_path.replace("\\", "/")
-    if "configs/datasets_config/" in norm_p:
-        alt = norm_p.replace("configs/datasets_config/", "configs/datasets/")
-        candidates.extend([alt, os.path.join(PROJECT_ROOT, alt)])
-    elif "configs/datasets/" in norm_p:
-        alt = norm_p.replace("configs/datasets/", "configs/datasets_config/")
-        candidates.extend([alt, os.path.join(PROJECT_ROOT, alt)])
-    else:
-        for folder in ["configs/datasets", "configs/datasets_config"]:
-            candidates.extend([
-                os.path.join(folder, config_path),
-                os.path.join(PROJECT_ROOT, folder, config_path)
-            ])
-            
+    normalized_path = config_path.replace("\\", "/")
+    config_dir = "configs/datasets_config"
+    if "configs/datasets/" in normalized_path:
+        renamed_path = normalized_path.replace("configs/datasets/", f"{config_dir}/")
+        candidates.extend([renamed_path, os.path.join(PROJECT_ROOT, renamed_path)])
+    elif f"{config_dir}/" not in normalized_path:
+        candidates.extend([
+            os.path.join(config_dir, config_path),
+            os.path.join(PROJECT_ROOT, config_dir, config_path),
+        ])
+
     for c in candidates:
         if os.path.exists(c) and os.path.isfile(c):
             with open(c, "r", encoding="utf-8") as f:

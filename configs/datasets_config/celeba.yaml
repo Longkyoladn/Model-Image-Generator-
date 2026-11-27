@@ -45,4 +45,3 @@ conditional:
   attribute_type: "single_attribute"           # 'single_attribute' hoặc 'multi_attribute'
   target_attributes: ["Smiling"]               # Thuộc tính khuôn mặt: "Smiling", "Male", "Eyeglasses", "Young"
   num_classes: 2                               # 0: Không mỉm cười, 1: Mỉm cười
-

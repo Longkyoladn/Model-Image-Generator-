@@ -130,7 +130,7 @@ def main():
     # Đọc các thông số
     ds_cfg = cfg.get("dataset", {})
     dataset_name = ds_cfg.get("name", "cifar10") if isinstance(ds_cfg, dict) else str(ds_cfg)
-    ds_config_path = ds_cfg.get("dataset_config", f"configs/datasets/{dataset_name}.yaml") if isinstance(ds_cfg, dict) else f"configs/datasets/{dataset_name}.yaml"
+    ds_config_path = ds_cfg.get("dataset_config", f"configs/datasets_config/{dataset_name}.yaml") if isinstance(ds_cfg, dict) else f"configs/datasets_config/{dataset_name}.yaml"
     image_shape = tuple(cfg.get("image_shape", ds_cfg.get("image_shape", (3, 32, 32)) if isinstance(ds_cfg, dict) else (3, 32, 32)))
 
     model_cfg = cfg.get("model", {})

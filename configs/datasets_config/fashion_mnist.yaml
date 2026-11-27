@@ -11,6 +11,7 @@ image:
   original_size: 28
   channels: 1                                  # 1 kênh màu Grayscale
   resize_method: "pad_or_resize"               # 'pad' (thêm 2px viền mỗi bên) hoặc 'resize'
+  interpolation: "bilinear"
 
 normalization:
   range: "[-1, 1]"
@@ -56,4 +57,3 @@ conditional:
     7: "Sneaker"
     8: "Bag"
     9: "Ankle boot"
-

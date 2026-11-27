@@ -4,7 +4,7 @@
 dataset:
   name: celeba
   image_shape: [3, 64, 64]
-  dataset_config: configs/datasets/celeba.yaml
+  dataset_config: configs/datasets_config/celeba.yaml
 
 model:
   name: dcgan

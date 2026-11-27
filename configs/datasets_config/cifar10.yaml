@@ -9,6 +9,7 @@ datasets_config:
 image:
   size: 32                                     # 32x32 pixel gốc
   channels: 3                                  # 3 kênh màu RGB
+  interpolation: "bilinear"
 
 normalization:
   range: "[-1, 1]"
@@ -51,4 +52,3 @@ conditional:
     7: "horse"
     8: "ship"
     9: "truck"
-
