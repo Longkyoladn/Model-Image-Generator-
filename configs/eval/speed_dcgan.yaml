@@ -1,4 +1,5 @@
 # Spec kiểm tra benchmark và speed cho DCGAN (mục 4.4 và scripts/smoke_test_benchmark.py)
+# Huấn luyện configs/dcgan/cifar10/base.yaml ở stage full trước khi chạy spec.
 
 dataset: cifar10
 precision: fp32
@@ -15,6 +16,6 @@ smoke:
 
 targets:
   - model: dcgan
-    checkpoint: auto
+    checkpoint: outputs/checkpoints/dcgan/cifar10/base/checkpoint_final.pt
     run_name: dcgan_cifar10_base
     trainer_config: "configs/dcgan/cifar10/base.yaml"

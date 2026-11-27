@@ -11,12 +11,11 @@ Script huấn luyện mô hình DCGAN (Task 3.1 & 3.2 trong TASK_ASSIGNMENT.md).
 from __future__ import annotations
 
 import argparse
-import copy
 import csv
 import json
-import os
 import sys
 import time
+from itertools import islice
 from pathlib import Path
 
 # Đặt project root lên đầu sys.path
@@ -25,13 +24,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import torch
-from torch import nn
 import yaml
 
 from evaluation.common import git_commit, normalize_config, sync
 from evaluation.calibrate import device_key
-from datasets.preprocessing.builder import build_dataloader, load_yaml_config
-from models.gan import DCGAN, weights_init
+from datasets.preprocessing.builder import build_dataloader
+from models.gan import DCGAN, DCGANTrainer
 
 # Thử import save_grid từ scripts/render_samples.py để đồng nhất kiểu lưới ảnh của nhóm
 try:
@@ -113,9 +111,117 @@ def parse_args():
     return parser.parse_args()
 
 
+LOSS_COLUMNS = ("epoch", "step", "loss_d", "loss_g", "loss_d_real", "loss_d_fake", "elapsed_sec")
+
+
+def run_output_paths(logging, dataset_name, experiment, stage, run_name=None):
+    """Giữ đường dẫn full mặc định và tách thư mục theo stage, tên run."""
+    full_name = f"dcgan_{dataset_name}_base" if experiment == "base" else experiment
+    default_name = full_name if stage == "full" else f"{stage}_{dataset_name}_{experiment}"
+    run_name = run_name or default_name
+    if run_name in (".", "..") or any(char in run_name for char in "/\\:"):
+        raise ValueError("--run_name phải là tên thư mục đơn.")
+
+    paths = {}
+    for output, setting in (
+        ("checkpoints", "checkpoint_dir"), ("samples", "sample_dir"), ("metrics", "metric_dir"),
+    ):
+        directory = PROJECT_ROOT / logging.get(setting, f"outputs/{output}/dcgan/{dataset_name}/{full_name}")
+        if stage != "full":
+            directory = directory.with_name(f"{directory.name}_{stage}")
+        if run_name != default_name:
+            directory = directory.with_name(f"{directory.name}__{run_name}")
+        paths[output] = directory
+    return run_name, paths
+
+
+def restore_checkpoint_history(checkpoint, resume_path, checkpoint_dir, history_path):
+    """Khôi phục các mốc đã lưu, kể cả checkpoint tạo bằng script cũ."""
+    same_directory = resume_path.parent == checkpoint_dir.resolve()
+    history = checkpoint.get("checkpoint_history")
+    if history is None:
+        previous = {}
+        if same_directory and history_path.is_file():
+            try:
+                previous = {
+                    item["checkpoint"]: item for item in json.loads(history_path.read_text(encoding="utf-8"))
+                }
+            except json.JSONDecodeError:
+                pass
+
+        history = []
+        for path in resume_path.parent.glob("checkpoint_epoch_*.pt"):
+            epoch_text = path.stem.removeprefix("checkpoint_epoch_")
+            if epoch_text.isdecimal() and int(epoch_text) <= checkpoint.get("epoch", 0):
+                if path.name in previous:
+                    history.append(previous[path.name])
+                    continue
+                saved = torch.load(path, map_location="meta", weights_only=False)
+                history.append({
+                    "epoch": saved["epoch"],
+                    "step": saved.get("total_steps", 0),
+                    "checkpoint": path.name,
+                    "hardware_hours": saved.get("hardware_hours", {}),
+                })
+        history.sort(key=lambda item: item["epoch"])
+
+    if not same_directory:
+        return [
+            {**item, "checkpoint": str((resume_path.parent / item["checkpoint"]).resolve())}
+            for item in history
+        ]
+    return list(history)
+
+
+def open_loss_log(path, resume_epoch):
+    if resume_epoch is not None and path.is_file():
+        with path.open(newline="", encoding="utf-8") as file:
+            reader = csv.reader(file)
+            if tuple(next(reader, [])) != LOSS_COLUMNS:
+                raise ValueError(f"Không đọc được tiêu đề loss.csv ở {path}")
+            rows = {}
+            for row in reader:
+                if len(row) == len(LOSS_COLUMNS) and row[0].isdecimal():
+                    epoch = int(row[0])
+                    if epoch <= resume_epoch:
+                        rows[epoch] = row
+
+        # Bỏ các dòng sau checkpoint để lần chạy tiếp ghi lại đúng epoch.
+        temporary = path.with_suffix(".csv.tmp")
+        with temporary.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(LOSS_COLUMNS)
+            writer.writerows(rows[epoch] for epoch in sorted(rows))
+        temporary.replace(path)
+        return path.open("a", newline="", encoding="utf-8")
+
+    file = path.open("x", newline="", encoding="utf-8")
+    csv.writer(file).writerow(LOSS_COLUMNS)
+    file.flush()
+    return file
+
+
+def save_checkpoint(data, path):
+    temporary = path.with_suffix(".pt.tmp")
+    torch.save(data, temporary)
+    temporary.replace(path)
+
+
+def write_json(path, data):
+    temporary = path.with_suffix(".json.tmp")
+    with temporary.open("w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2, ensure_ascii=False)
+    temporary.replace(path)
+
+
 def main():
     args = parse_args()
     device = torch.device(args.device)
+    if args.max_steps is not None and args.max_steps < 1:
+        raise ValueError("--max_steps phải lớn hơn 0.")
+    resume_path = (PROJECT_ROOT / args.resume).resolve() if args.resume else None
+    if resume_path is not None and not resume_path.is_file():
+        raise FileNotFoundError(f"Không tìm thấy checkpoint --resume: {resume_path}")
 
     # 1. Nạp và xử lý file cấu hình
     cfg_path = Path(args.config)
@@ -151,19 +257,28 @@ def main():
     label_smoothing = train_cfg.get("label_smoothing", 0.9)
     seed = train_cfg.get("seed", 42)
     num_workers = train_cfg.get("num_workers", 0)
+    precision = train_cfg.get("precision", "fp32")
 
-    run_name = args.run_name or cfg_path.stem
-    if run_name == "base":
-        run_name = f"dcgan_{dataset_name}_base"
+    run_name, paths = run_output_paths(log_cfg, dataset_name, cfg_path.stem, args.stage, args.run_name)
+    ckpt_dir = paths["checkpoints"]
+    sample_dir = paths["samples"]
+    metric_dir = paths["metrics"]
+    loss_log_path = metric_dir / "loss.csv"
+    history_path = metric_dir / "checkpoints.json"
+    metadata_path = metric_dir / "metadata.json"
 
-    # Thiết lập thư mục lưu trữ
-    ckpt_dir = PROJECT_ROOT / log_cfg.get("checkpoint_dir", f"outputs/checkpoints/dcgan/{dataset_name}/{run_name}")
-    sample_dir = PROJECT_ROOT / log_cfg.get("sample_dir", f"outputs/samples/dcgan/{dataset_name}/{run_name}")
-    metric_dir = PROJECT_ROOT / log_cfg.get("metric_dir", f"outputs/metrics/dcgan/{dataset_name}/{run_name}")
-
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    sample_dir.mkdir(parents=True, exist_ok=True)
-    metric_dir.mkdir(parents=True, exist_ok=True)
+    saved_checkpoints = list(ckpt_dir.glob("checkpoint_*.pt"))
+    has_output = (
+        bool(saved_checkpoints) or any(sample_dir.glob("epoch_*.png"))
+        or (sample_dir / "latest_sample.png").exists()
+        or any(path.exists() for path in (loss_log_path, history_path, metadata_path))
+    )
+    if has_output and resume_path is None:
+        raise FileExistsError(
+            f"Run {run_name!r} đã có kết quả. Dùng --run_name khác để chạy mới hoặc --resume để chạy tiếp."
+        )
+    if has_output and resume_path is not None and resume_path.parent != ckpt_dir.resolve():
+        raise ValueError(f"Run {run_name!r} đã có kết quả. Chọn checkpoint trong thư mục {ckpt_dir}.")
 
     save_every = log_cfg.get("save_every_epochs", 5)
     sample_every = log_cfg.get("sample_every_epochs", 1)
@@ -182,7 +297,7 @@ def main():
     print(f" - Latent Dim:       {latent_dim}")
     print(f" - Batch size:       {batch_size}")
     print(f" - Epochs:           {epochs}")
-    print(f" - Device:           {device}")
+    print(f" - Device:           {device} ({precision})")
     print(f" - Learning Rate:    D={lr_d}, G={lr_g} (Adam beta1={beta1})")
     print(f" - Label Smoothing:  {label_smoothing}")
     print(f" - Checkpoint dir:   {ckpt_dir}")
@@ -219,10 +334,10 @@ def main():
         d_steps=d_steps,
     ).to(device)
 
-    # Optimizers và Loss
-    opt_d = torch.optim.Adam(model.discriminator.parameters(), lr=lr_d, betas=(beta1, beta2))
-    opt_g = torch.optim.Adam(model.generator.parameters(), lr=lr_g, betas=(beta1, beta2))
-    criterion = nn.BCEWithLogitsLoss()
+    trainer = DCGANTrainer(
+        model, batch_size=batch_size, lr_d=lr_d, lr_g=lr_g, beta1=beta1, beta2=beta2,
+        precision=precision, label_smoothing=label_smoothing,
+    )
 
     # Fixed Noise cố định để theo dõi sự tiến hóa qua từng epoch (seed 42)
     fixed_gen = torch.Generator(device=device).manual_seed(42)
@@ -234,35 +349,43 @@ def main():
     dev_str = device_key(device)
     checkpoint_history = []
 
-    # 4. Hỗ trợ Resume nếu có checkpoint
-    if args.resume:
-        resume_p = Path(args.resume)
-        if not resume_p.is_absolute():
-            resume_p = PROJECT_ROOT / resume_p
-        if resume_p.exists():
-            print(f"🔄 Đang phục hồi từ checkpoint: {resume_p}...")
-            ckpt = torch.load(resume_p, map_location=device, weights_only=False)
-            model.generator.load_state_dict(ckpt["generator_state_dict"])
-            model.discriminator.load_state_dict(ckpt["discriminator_state_dict"])
-            if "optimizer_d_state_dict" in ckpt:
-                opt_d.load_state_dict(ckpt["optimizer_d_state_dict"])
-            if "optimizer_g_state_dict" in ckpt:
-                opt_g.load_state_dict(ckpt["optimizer_g_state_dict"])
-            start_epoch = ckpt.get("epoch", 0) + 1
-            total_steps = ckpt.get("total_steps", 0)
-            total_train_seconds = ckpt.get("total_train_seconds", 0.0)
-            print(f"   --> Phục hồi thành công! Tiếp tục từ Epoch {start_epoch}, Step {total_steps}")
-        else:
-            print(f"⚠️ Không tìm thấy file resume: {resume_p}, sẽ train mới từ đầu.")
+    resume_epoch = None
+    if resume_path is not None:
+        print(f"🔄 Đang phục hồi từ checkpoint: {resume_path}...")
+        ckpt = torch.load(resume_path, map_location=device, weights_only=False)
+        resume_epoch = ckpt.get("epoch", 0)
+        start_epoch = resume_epoch + 1
+        for path in saved_checkpoints:
+            epoch_text = path.stem.removeprefix("checkpoint_epoch_")
+            if epoch_text.isdecimal() and int(epoch_text) > resume_epoch:
+                raise ValueError(f"Thư mục run có checkpoint mới hơn {resume_path.name}: {path.name}")
 
-    # File log Loss
-    loss_log_path = metric_dir / "loss.csv"
-    write_header = not loss_log_path.exists() or (start_epoch == 1)
-    loss_file = open(loss_log_path, "a", newline="", encoding="utf-8")
+        model.generator.load_state_dict(ckpt["generator_state_dict"])
+        model.discriminator.load_state_dict(ckpt["discriminator_state_dict"])
+        if "optimizer_d_state_dict" in ckpt:
+            trainer.opt_d.load_state_dict(ckpt["optimizer_d_state_dict"])
+        if "optimizer_g_state_dict" in ckpt:
+            trainer.opt_g.load_state_dict(ckpt["optimizer_g_state_dict"])
+        if ckpt.get("scaler_state_dict"):
+            trainer.scaler.load_state_dict(ckpt["scaler_state_dict"])
+        total_steps = ckpt.get("total_steps", 0)
+        total_train_seconds = ckpt.get("total_train_seconds", 0.0)
+        checkpoint_history = restore_checkpoint_history(ckpt, resume_path, ckpt_dir, history_path)
+        print(f"   --> Phục hồi thành công! Tiếp tục từ Epoch {start_epoch}, Step {total_steps}")
+
+    if epochs < start_epoch:
+        raise ValueError(f"--epochs phải ít nhất là {start_epoch} cho lần chạy này.")
+    num_batches = len(train_loader)
+    if args.max_steps is not None:
+        num_batches = min(num_batches, args.max_steps)
+    if not num_batches:
+        raise ValueError("Tập train không có batch nào. Kiểm tra dữ liệu và batch size.")
+
+    for directory in paths.values():
+        directory.mkdir(parents=True, exist_ok=True)
+
+    loss_file = open_loss_log(loss_log_path, resume_epoch)
     loss_writer = csv.writer(loss_file)
-    if write_header:
-        loss_writer.writerow(["epoch", "step", "loss_d", "loss_g", "loss_d_real", "loss_d_fake", "elapsed_sec"])
-        loss_file.flush()
 
     # 5. Training Loop
     print("\n" + "=" * 75)
@@ -279,48 +402,13 @@ def main():
             running_loss_g = 0.0
             running_loss_d_real = 0.0
             running_loss_d_fake = 0.0
-            num_batches = len(train_loader)
-
-            for batch_idx, (real_imgs, _) in enumerate(train_loader):
-                if args.max_steps is not None and batch_idx >= args.max_steps:
-                    break
+            batches_done = 0
+            for batches_done, (real_imgs, _) in enumerate(islice(train_loader, num_batches), start=1):
                 b = real_imgs.size(0)
                 real_imgs = real_imgs.to(device)
 
                 step_start_time = time.perf_counter()
-
-                # ---------------------------------------------
-                # 1. Cập nhật Discriminator: maximize log(D(x)) + log(1 - D(G(z)))
-                # ---------------------------------------------
-                for _ in range(d_steps):
-                    opt_d.zero_grad(set_to_none=True)
-
-                    # Ảnh thật (Label smoothing)
-                    output_real = model.discriminator(real_imgs).view(-1)
-                    target_real = torch.full((b,), label_smoothing, device=device)
-                    loss_d_real = criterion(output_real, target_real)
-
-                    # Ảnh giả
-                    z = torch.randn(b, latent_dim, device=device)
-                    fake_imgs = model.generator(z)
-                    output_fake = model.discriminator(fake_imgs.detach()).view(-1)
-                    target_fake = torch.full((b,), 0.0, device=device)
-                    loss_d_fake = criterion(output_fake, target_fake)
-
-                    loss_d = loss_d_real + loss_d_fake
-                    loss_d.backward()
-                    opt_d.step()
-
-                # ---------------------------------------------
-                # 2. Cập nhật Generator: maximize log(D(G(z)))
-                # ---------------------------------------------
-                opt_g.zero_grad(set_to_none=True)
-                output_fake_for_g = model.discriminator(fake_imgs).view(-1)
-                target_g = torch.full((b,), 1.0, device=device)
-                loss_g = criterion(output_fake_for_g, target_g)
-                loss_g.backward()
-                opt_g.step()
-
+                loss_d, loss_g, loss_d_real, loss_d_fake = trainer.step(real_imgs)
                 sync(device)
                 step_elapsed = time.perf_counter() - step_start_time
                 total_train_seconds += step_elapsed
@@ -333,23 +421,26 @@ def main():
                 running_loss_d_fake += loss_d_fake.item()
 
                 # In tiến độ định kỳ
-                if (batch_idx + 1) % max(1, num_batches // 5) == 0 or (batch_idx + 1) == num_batches:
-                    cur_d = running_loss_d / (batch_idx + 1)
-                    cur_g = running_loss_g / (batch_idx + 1)
+                if batches_done % max(1, num_batches // 5) == 0 or batches_done == num_batches:
+                    cur_d = running_loss_d / batches_done
+                    cur_g = running_loss_g / batches_done
                     speed = b / max(step_elapsed, 1e-4)
                     print(
                         f"Epoch [{epoch:03d}/{epochs:03d}] "
-                        f"Step [{batch_idx + 1:04d}/{num_batches:04d}] "
+                        f"Step [{batches_done:04d}/{num_batches:04d}] "
                         f"| Loss D: {cur_d:.4f} (Real: {loss_d_real.item():.4f}, Fake: {loss_d_fake.item():.4f}) "
                         f"| Loss G: {cur_g:.4f} "
                         f"| Speed: {speed:.1f} img/s"
                     )
 
+            if not batches_done:
+                raise RuntimeError("DataLoader kết thúc trước khi trả về batch đầu tiên.")
+
             # Trung bình loss của cả epoch
-            avg_d = running_loss_d / num_batches
-            avg_g = running_loss_g / num_batches
-            avg_d_real = running_loss_d_real / num_batches
-            avg_d_fake = running_loss_d_fake / num_batches
+            avg_d = running_loss_d / batches_done
+            avg_g = running_loss_g / batches_done
+            avg_d_real = running_loss_d_real / batches_done
+            avg_d_fake = running_loss_d_fake / batches_done
             epoch_duration = time.time() - epoch_start_time
 
             # Ghi loss ra CSV
@@ -375,6 +466,13 @@ def main():
 
             # 7. Lưu Checkpoint định kỳ
             if (epoch % save_every == 0) or (epoch == epochs):
+                ckpt_path = ckpt_dir / f"checkpoint_epoch_{epoch:03d}.pt"
+                checkpoint_history.append({
+                    "epoch": epoch,
+                    "step": total_steps,
+                    "checkpoint": ckpt_path.name,
+                    "hardware_hours": {dev_str: round(total_train_seconds / 3600.0, 6)},
+                })
                 ckpt_data = {
                     "config": {
                         "model": "dcgan",
@@ -387,21 +485,17 @@ def main():
                     },
                     "generator_state_dict": model.generator.state_dict(),
                     "discriminator_state_dict": model.discriminator.state_dict(),
-                    "optimizer_d_state_dict": opt_d.state_dict(),
-                    "optimizer_g_state_dict": opt_g.state_dict(),
+                    "optimizer_d_state_dict": trainer.opt_d.state_dict(),
+                    "optimizer_g_state_dict": trainer.opt_g.state_dict(),
+                    "scaler_state_dict": trainer.scaler.state_dict(),
+                    "checkpoint_history": checkpoint_history,
                     "epoch": epoch,
                     "total_steps": total_steps,
                     "total_train_seconds": total_train_seconds,
                 }
-                ckpt_path = ckpt_dir / f"checkpoint_epoch_{epoch:03d}.pt"
-                torch.save(ckpt_data, ckpt_path)
-                torch.save(ckpt_data, ckpt_dir / "checkpoint_latest.pt")
-                checkpoint_history.append({
-                    "epoch": epoch,
-                    "step": total_steps,
-                    "checkpoint": ckpt_path.name,
-                    "hardware_hours": {dev_str: round(total_train_seconds / 3600.0, 6)},
-                })
+                save_checkpoint(ckpt_data, ckpt_path)
+                save_checkpoint(ckpt_data, ckpt_dir / "checkpoint_latest.pt")
+                write_json(history_path, checkpoint_history)
                 print(f"   💾 Đã lưu checkpoint: {ckpt_path}")
 
     finally:
@@ -409,25 +503,7 @@ def main():
 
     # 8. Lưu Checkpoint Final và Metadata (kind: "run" theo chuẩn Mục 4.3)
     final_ckpt_path = ckpt_dir / "checkpoint_final.pt"
-    final_ckpt_data = {
-        "config": {
-            "model": "dcgan",
-            "dataset": dataset_name,
-            "image_shape": list(image_shape),
-            "latent_dim": latent_dim,
-            "generator_features": g_feat,
-            "discriminator_features": d_feat,
-            "d_steps": d_steps,
-        },
-        "generator_state_dict": model.generator.state_dict(),
-        "discriminator_state_dict": model.discriminator.state_dict(),
-        "optimizer_d_state_dict": opt_d.state_dict(),
-        "optimizer_g_state_dict": opt_g.state_dict(),
-        "epoch": epochs,
-        "total_steps": total_steps,
-        "total_train_seconds": total_train_seconds,
-    }
-    torch.save(final_ckpt_data, final_ckpt_path)
+    save_checkpoint(ckpt_data, final_ckpt_path)
     print(f"\n🎉 Huấn luyện hoàn tất! Checkpoint cuối cùng: {final_ckpt_path}")
 
     # Metadata run (schema chuẩn mục 4.3 trong TASK_ASSIGNMENT.md)
@@ -446,7 +522,7 @@ def main():
         "checkpoint": final_ckpt_path.name,
         "train_steps": total_steps,
         "batch_size": batch_size,
-        "precision": "fp32",
+        "precision": precision,
         "hardware": [
             {"device": dev_str, "train_hours": round(train_hours, 6)}
         ],
@@ -454,16 +530,9 @@ def main():
         "commit": git_commit() or "uncommitted",
     }
 
-    meta_file = metric_dir / "metadata.json"
-    with open(meta_file, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
-
-    ckpt_hist_file = metric_dir / "checkpoints.json"
-    with open(ckpt_hist_file, "w", encoding="utf-8") as f:
-        json.dump(checkpoint_history, f, indent=2, ensure_ascii=False)
-
-    print(f"📄 Metadata run lưu tại: {meta_file}")
-    print(f"📄 Lịch sử checkpoint (để điền curve KID) lưu tại: {ckpt_hist_file}")
+    write_json(metadata_path, metadata)
+    print(f"📄 Metadata run lưu tại: {metadata_path}")
+    print(f"📄 Lịch sử checkpoint (để điền curve KID) lưu tại: {history_path}")
     print("=" * 75)
 
 

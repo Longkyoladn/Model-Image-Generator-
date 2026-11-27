@@ -5,9 +5,6 @@ Tuân thủ toàn bộ hợp đồng interface tại models/interface.py.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import torch
 from torch import nn
 
@@ -37,6 +34,9 @@ class DCGAN(GenerativeModel):
         c, h, w = self.image_shape
         if h != w or h not in (32, 64):
             raise ValueError(f"DCGAN chỉ hỗ trợ kích thước ảnh 32x32 hoặc 64x64, nhận được: {self.image_shape}")
+
+        if d_steps < 1:
+            raise ValueError("DCGAN yêu cầu d_steps >= 1.")
 
         self.latent_dim = latent_dim
         self.generator_features = generator_features
@@ -123,6 +123,11 @@ class DCGANTrainer(Trainer):
         precision: str = "fp32",
         label_smoothing: float = 0.9,
     ) -> None:
+        if precision not in ("fp32", "fp16"):
+            raise ValueError(f"Precision không hợp lệ cho DCGAN: {precision!r}. Chọn fp32 hoặc fp16.")
+        if precision == "fp16" and model.device.type != "cuda":
+            raise ValueError("DCGAN precision fp16 yêu cầu CUDA. Chọn fp32 khi chạy trên CPU.")
+
         self.model = model
         self.batch_size = batch_size
         self.image_shape = model.image_shape
@@ -141,45 +146,47 @@ class DCGANTrainer(Trainer):
             betas=(beta1, beta2),
         )
         self.criterion = nn.BCEWithLogitsLoss()
+        self.use_amp = precision == "fp16"
+        if hasattr(torch.amp, "GradScaler"):
+            self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
+        else:
+            self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
     def train_step(self, images: torch.Tensor) -> None:
-        """
-        Thực hiện 1 iteration train:
-        - Bước D: forward ảnh thật, sinh ảnh giả, tính loss D và backward cập nhật D.
-        - Bước G: forward ảnh giả qua D, tính loss G và backward cập nhật G.
-        """
+        self.step(images)
+
+    def step(self, images: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        """Cập nhật D và G, trả về loss D, G, D trên ảnh thật và D trên ảnh giả."""
         device = images.device
-        b = images.size(0)
+        batch_size = images.size(0)
+        real_label = torch.full((batch_size,), self.label_smoothing, device=device)
+        fake_label = torch.zeros(batch_size, device=device)
+        gen_label = torch.ones(batch_size, device=device)
 
-        # ---------------------
-        # 1. Cập nhật Discriminator
-        # ---------------------
-        self.opt_d.zero_grad(set_to_none=True)
+        for step in range(self.model.d_steps):
+            self.opt_d.zero_grad(set_to_none=True)
+            with torch.autocast(device.type, dtype=torch.float16, enabled=self.use_amp):
+                real_pred = self.model.discriminator(images).view(-1)
+                loss_d_real = self.criterion(real_pred, real_label)
 
-        # Loss trên ảnh thật (áp dụng label smoothing cho ảnh thật)
-        real_pred = self.model.discriminator(images).view(-1)
-        real_label = torch.full((b,), self.label_smoothing, device=device)
-        loss_d_real = self.criterion(real_pred, real_label)
+                z = torch.randn(batch_size, self.model.latent_dim, device=device)
+                fake_images = self.model.generator(z)
+                fake_pred = self.model.discriminator(fake_images.detach()).view(-1)
+                loss_d_fake = self.criterion(fake_pred, fake_label)
+                loss_d = loss_d_real + loss_d_fake
 
-        # Loss trên ảnh giả
-        z = torch.randn(b, self.model.latent_dim, device=device)
-        fake_images = self.model.generator(z)
-        fake_pred = self.model.discriminator(fake_images.detach()).view(-1)
-        fake_label = torch.full((b,), 0.0, device=device)
-        loss_d_fake = self.criterion(fake_pred, fake_label)
+            self.scaler.scale(loss_d).backward()
+            self.scaler.step(self.opt_d)
+            if step + 1 < self.model.d_steps:
+                self.scaler.update()
 
-        loss_d = loss_d_real + loss_d_fake
-        loss_d.backward()
-        self.opt_d.step()
-
-        # ---------------------
-        # 2. Cập nhật Generator
-        # ---------------------
         self.opt_g.zero_grad(set_to_none=True)
+        with torch.autocast(device.type, dtype=torch.float16, enabled=self.use_amp):
+            fake_pred_for_g = self.model.discriminator(fake_images).view(-1)
+            loss_g = self.criterion(fake_pred_for_g, gen_label)
 
-        fake_pred_for_g = self.model.discriminator(fake_images).view(-1)
-        gen_label = torch.full((b,), 1.0, device=device)
-        loss_g = self.criterion(fake_pred_for_g, gen_label)
+        self.scaler.scale(loss_g).backward()
+        self.scaler.step(self.opt_g)
+        self.scaler.update()
 
-        loss_g.backward()
-        self.opt_g.step()
+        return loss_d.detach(), loss_g.detach(), loss_d_real.detach(), loss_d_fake.detach()
