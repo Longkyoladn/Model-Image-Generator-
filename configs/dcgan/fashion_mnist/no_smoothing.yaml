@@ -1,0 +1,34 @@
+# Tuning Config: Tắt Label Smoothing (label_smoothing = 1.0) cho Fashion-MNIST
+# Mục 2.3 trong TASK_ASSIGNMENT.md
+
+dataset:
+  name: fashion_mnist
+  image_shape: [1, 32, 32]
+  dataset_config: configs/datasets/fashion_mnist.yaml
+
+model:
+  name: dcgan
+  latent_dim: 100
+  generator_features: 64
+  discriminator_features: 64
+  d_steps: 1
+
+training:
+  batch_size: 64
+  epochs: 40
+  lr_d: 0.0002
+  lr_g: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  precision: fp32
+  label_smoothing: 1.0
+  seed: 42
+  num_workers: 2
+
+logging:
+  save_every_epochs: 5
+  sample_every_epochs: 1
+  num_fixed_samples: 64
+  checkpoint_dir: outputs/checkpoints/dcgan/fashion_mnist/no_smoothing
+  sample_dir: outputs/samples/dcgan/fashion_mnist/no_smoothing
+  metric_dir: outputs/metrics/dcgan/fashion_mnist/no_smoothing
