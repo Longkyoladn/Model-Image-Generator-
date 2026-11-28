@@ -2,7 +2,7 @@
 datasets_config:
   name: "celeba"
   display_name: "CelebFaces Attributes Dataset (CelebA)"
-  raw_dir: "datasets/raw/celeba"               # Hoặc đường dẫn từ Google Drive / Kaggle
+  raw_dir: "datasets/raw/celeba"               # Kaggle: /kaggle/input/celeba-dataset/
   processed_dir: "datasets/processed/celeba"
   split_file: "datasets/splits/celeba_split.json"
 

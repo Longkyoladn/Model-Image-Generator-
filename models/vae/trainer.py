@@ -8,7 +8,7 @@ Kế thừa Trainer từ models/interface.py:
 from __future__ import annotations
 
 import torch
-from torch import optim
+from torch import device, optim
 
 from models.interface import Trainer
 from models.vae.losses import vae_loss
@@ -29,8 +29,11 @@ class VAETrainer(Trainer):
         learning_rate: float = 5e-4,
         beta: float = 1.0,
         loss_type: str = "mse",
-        device: str | torch.device = "cpu",
+        device: str | torch.device | None = None,
     ):
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
         self.device = torch.device(device)
         self.model = model.to(self.device)
         self.batch_size = int(batch_size)
@@ -51,6 +54,7 @@ class VAETrainer(Trainer):
 
         self.use_amp = (self.precision == "fp16" and self.device.type == "cuda")
         self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
+        self.last_metrics: dict[str, float] = {}
 
     def train_step(self, images: torch.Tensor) -> None:
         """Thực hiện đúng một iteration train hoàn chỉnh (forward, backward, optimizer step)."""
@@ -62,12 +66,22 @@ class VAETrainer(Trainer):
         if self.use_amp:
             with torch.amp.autocast("cuda"):
                 recon, mu, logvar = self.model(images)
-                loss, _, _ = vae_loss(recon, images, mu, logvar, beta=self.beta, loss_type=self.loss_type)
+                loss, recon_loss, kl_loss = vae_loss(
+                    recon, images, mu, logvar, beta=self.beta, loss_type=self.loss_type
+                )
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
             recon, mu, logvar = self.model(images)
-            loss, _, _ = vae_loss(recon, images, mu, logvar, beta=self.beta, loss_type=self.loss_type)
+            loss, recon_loss, kl_loss = vae_loss(
+                recon, images, mu, logvar, beta=self.beta, loss_type=self.loss_type
+            )
             loss.backward()
             self.optimizer.step()
+
+        self.last_metrics = {
+            "loss": float(loss.detach()),
+            "recon_loss": float(recon_loss.detach()),
+            "kl_loss": float(kl_loss.detach()),
+        }

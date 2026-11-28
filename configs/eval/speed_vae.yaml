@@ -1,4 +1,4 @@
-# Spec benchmark tốc độ riêng cho mô hình VAE thật (Quân)
+# Spec benchmark tốc độ cho mô hình VAE trên CIFAR-10
 dataset: cifar10
 precision: fp32
 batch_sizes: [1, 64, 256]
@@ -14,6 +14,6 @@ smoke:
 
 targets:
   - model: vae
-    checkpoint: outputs/checkpoints/cifar10/vae/best.pt
-    run_name: vae_base
+    checkpoint: outputs/checkpoints/cifar10/vae/vae_cifar10_full/best.pt
+    run_name: vae_cifar10_full
     trainer_config: configs/vae/cifar10/base.yaml

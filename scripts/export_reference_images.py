@@ -13,6 +13,8 @@ import sys
 import time
 import json
 import copy
+import hashlib
+import shutil
 import argparse
 from pathlib import Path
 
@@ -25,19 +27,40 @@ import torch
 import torchvision.io as tv_io
 from PIL import Image
 
+from configs.common import REFERENCE_ROOT, reference_split_dir
 from datasets.preprocessing.builder import build_dataloader, load_yaml_config
 
 SUPPORTED_DATASETS = ["fashion_mnist", "cifar10", "celeba"]
 SUPPORTED_SPLITS = ["train", "val", "test"]
 
 
+def _prepare_clean_split_dir(split_out_dir: str, overwrite: bool) -> None:
+    """Đảm bảo thư mục xuất reference trống trước khi ghi ảnh."""
+    if os.path.exists(split_out_dir):
+        if not os.path.isdir(split_out_dir):
+            raise NotADirectoryError(f"Đường dẫn reference không phải thư mục: {split_out_dir}")
+        if os.listdir(split_out_dir):
+            if not overwrite:
+                raise FileExistsError(
+                    f"Thư mục tham chiếu '{split_out_dir}' đã tồn tại và không rỗng. "
+                    "Truyền --overwrite để xóa sạch ảnh cũ trước khi xuất lại."
+                )
+            shutil.rmtree(split_out_dir)
+    os.makedirs(split_out_dir, exist_ok=True)
+
+
+def _hash_json_obj(obj: dict) -> str:
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
 def export_reference_split(
     dataset_name: str,
     split: str,
-    output_base_dir: str = "outputs/reference",
+    output_base_dir: str = str(REFERENCE_ROOT),
     batch_size: int = 128,
     num_workers: int = 0,
-    max_samples: int = None
+    max_samples: int = None,
+    overwrite: bool = False,
 ):
     """
     Xuất ảnh thật tham chiếu cho 1 split của 1 dataset cụ thể.
@@ -45,8 +68,12 @@ def export_reference_split(
     if not os.path.isabs(output_base_dir):
         output_base_dir = os.path.join(PROJECT_ROOT, output_base_dir)
 
-    split_out_dir = os.path.join(output_base_dir, dataset_name, split)
-    os.makedirs(split_out_dir, exist_ok=True)
+    split_out_dir = str(reference_split_dir(dataset_name, split, root=output_base_dir))
+    try:
+        _prepare_clean_split_dir(split_out_dir, overwrite=overwrite)
+    except Exception as e:
+        print(f"❌ [LỖI]: {e}")
+        return False
 
     print("\n" + "=" * 75)
     print(f"📦 XUẤT ẢNH THẬT THAM CHIẾU: {dataset_name.upper()} | SPLIT: {split.upper()}")
@@ -60,23 +87,25 @@ def export_reference_split(
         print(f"❌ [LỖI]: {e}")
         return False
 
-    # 2. Ép tắt hoàn toàn Augmentation cho toàn bộ các split (theo Mục 2.6)
+    # 2. Ép tắt hoàn toàn Augmentation và drop_last cho toàn bộ các split (theo Mục 2.6)
     cfg_no_aug = copy.deepcopy(cfg)
     if "augmentation" in cfg_no_aug:
         for s in ["train", "val", "test"]:
             if s in cfg_no_aug["augmentation"]:
                 cfg_no_aug["augmentation"][s]["horizontal_flip"] = False
                 cfg_no_aug["augmentation"][s]["flip_probability"] = 0.0
+    cfg_no_aug.setdefault("dataloader", {})["drop_last"] = False
 
     # 3. Tạo DataLoader
-    print(f" - Khởi tạo DataLoader không Augmentation (batch_size={batch_size})...")
+    print(f" - Khởi tạo DataLoader không Augmentation (batch_size={batch_size}, drop_last=False)...")
     try:
         loader, ds = build_dataloader(
             cfg_no_aug,
             split=split,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=num_workers
+            num_workers=num_workers,
+            drop_last=False,
         )
     except Exception as e:
         print(f"⚠️ Không thể nạp dataset '{dataset_name}' split '{split}': {e}")
@@ -95,6 +124,7 @@ def export_reference_split(
 
     saved_count = 0
     labels_list = []
+    exported_files = []
     start_time = time.time()
     img_shape = None
 
@@ -126,7 +156,8 @@ def export_reference_split(
             if img_shape is None:
                 img_shape = [int(img_chw.shape[1]), int(img_chw.shape[2])]
 
-            img_path = os.path.join(split_out_dir, f"{saved_count:06d}.png")
+            filename = f"{saved_count:06d}.png"
+            img_path = os.path.join(split_out_dir, filename)
 
             # Ghi file PNG uint8 không nén mất mát
             try:
@@ -135,6 +166,8 @@ def export_reference_split(
                 # Fallback với PIL
                 img_hwc = img_chw.permute(1, 2, 0).cpu().numpy()
                 Image.fromarray(img_hwc).save(img_path, format="PNG")
+
+            exported_files.append(filename)
 
             # Lưu nhãn đi kèm
             target_val = batch_targets[i]
@@ -154,22 +187,49 @@ def export_reference_split(
             speed = saved_count / max(elapsed, 1e-4)
             print(f"   --> Đã xuất: {saved_count:,}/{target_count:,} ảnh ({speed:.1f} ảnh/s)")
 
-    # 4. Ghi file metadata và labels
+    if saved_count != target_count:
+        raise RuntimeError(f"Số ảnh xuất ({saved_count}) không khớp kỳ vọng ({target_count}) cho {dataset_name}/{split}")
+
+    ds_cfg_section = cfg.get("datasets_config", cfg.get("dataset_config", cfg.get("dataset", {})))
+    split_file_rel = ds_cfg_section.get("split_file")
+    split_file_hash = None
+    if split_file_rel:
+        split_file_abs = Path(split_file_rel) if os.path.isabs(split_file_rel) else Path(PROJECT_ROOT) / split_file_rel
+        if split_file_abs.is_file():
+            split_file_hash = hashlib.sha256(split_file_abs.read_bytes()).hexdigest()[:16]
+
+    preprocessing_hash = _hash_json_obj(cfg_no_aug)
+    is_partial = bool(max_samples is not None and saved_count < total_available)
+
+    # 4. Ghi file metadata, manifest và labels
     metadata = {
         "dataset": dataset_name,
         "split": split,
         "total_images": saved_count,
+        "expected_full_split_count": total_available,
+        "is_partial": is_partial,
         "resolution": img_shape or [32, 32],
         "channels": 3,
         "format": "PNG uint8 [0, 255]",
         "no_augmentation": True,
         "norm_range_source": norm_range,
-        "export_timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        "preprocessing_config_hash": preprocessing_hash,
+        "split_file_hash": split_file_hash,
+        "export_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     meta_file = os.path.join(split_out_dir, "metadata.json")
     with open(meta_file, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+    manifest = {
+        **metadata,
+        "complete": True,
+        "files": exported_files,
+    }
+    manifest_file = os.path.join(split_out_dir, "manifest.json")
+    with open(manifest_file, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     labels_file = os.path.join(split_out_dir, "labels.json")
     with open(labels_file, "w", encoding="utf-8") as f:
@@ -221,6 +281,11 @@ def main():
         default=None,
         help="Giới hạn số mẫu xuất tối đa (dùng để test thử hoặc lấy mẫu nhỏ)"
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Xóa sạch thư mục split cũ trước khi xuất lại."
+    )
 
     args = parser.parse_args()
 
@@ -237,6 +302,7 @@ def main():
     if args.max_samples:
         print(f" - Giới hạn:  {args.max_samples} ảnh/split")
 
+    total_runs = len(datasets_to_run) * len(splits_to_run)
     success_count = 0
     for ds_name in datasets_to_run:
         for sp in splits_to_run:
@@ -246,14 +312,17 @@ def main():
                 output_base_dir=args.output_dir,
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
-                max_samples=args.max_samples
+                max_samples=args.max_samples,
+                overwrite=args.overwrite,
             )
             if ok:
                 success_count += 1
 
     print("\n" + "=" * 75)
-    print(f"🎉 HOÀN TẤT TỔNG CỘNG: {success_count} splits đã được xử lý thành công!")
+    print(f"🎉 HOÀN TẤT TỔNG CỘNG: {success_count}/{total_runs} splits đã được xử lý thành công!")
     print("=" * 75)
+    if success_count != total_runs:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

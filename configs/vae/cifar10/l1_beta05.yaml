@@ -1,0 +1,15 @@
+# Cấu hình tuning VAE trên CIFAR-10: dùng L1 reconstruction loss + beta=0.5 giảm nhòe biên ảnh
+dataset: "cifar10"
+image_shape: [3, 32, 32]
+latent_dim: 128
+base_channels: 64
+
+training:
+  batch_size: 64
+  learning_rate: 0.0005
+  beta: 0.5
+  precision: "fp32"
+  epochs: 50
+  loss_type: "l1"
+  save_interval: 10
+  seed: 42

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import yaml
 import torch
@@ -20,35 +19,68 @@ DATASET_SHAPES = {
 }
 
 
-def load_model(checkpoint: str, device: str | torch.device = "cpu") -> GenerativeModel:
-    """Tải checkpoint mô hình VAE tuân thủ interface GenerativeModel."""
-    dev = torch.device(device)
-    ckpt_path = Path(checkpoint)
+def _validate_image_shape(raw_shape) -> tuple[int, int, int]:
+    if not isinstance(raw_shape, (list, tuple)) or len(raw_shape) != 3:
+        raise ValueError(f"image_shape không hợp lệ trong checkpoint VAE: {raw_shape!r}")
+    c, h, w = (int(raw_shape[0]), int(raw_shape[1]), int(raw_shape[2]))
+    if c not in (1, 3) or h != w or h not in (32, 64):
+        raise ValueError(f"VAE chỉ hỗ trợ image_shape (1|3, 32, 32) hoặc (1|3, 64, 64), nhận được {(c, h, w)}")
+    return (c, h, w)
 
-    # Chế độ tự động hoặc file checkpoint không tồn tại (dùng cho smoke test / testing)
-    if checkpoint == "auto" or not ckpt_path.is_file():
-        # Đoán shape dựa vào chuỗi đường dẫn nếu có
-        shape = (3, 32, 32)
-        for ds_name, ds_shape in DATASET_SHAPES.items():
-            if ds_name in str(checkpoint).lower():
-                shape = ds_shape
-                break
-        model = VAE(image_shape=shape, latent_dim=128, base_channels=32)
+
+def _extract_state_dict(payload: dict, ckpt_path: Path) -> dict:
+    if "model_state_dict" in payload:
+        sd = payload["model_state_dict"]
+    elif "state_dict" in payload:
+        sd = payload["state_dict"]
+    elif ("encoder" in payload and "decoder" in payload) or (
+        any(isinstance(k, str) and k.startswith("encoder.") for k in payload)
+        and any(isinstance(k, str) and k.startswith("decoder.") for k in payload)
+    ):
+        sd = payload
+    else:
+        raise ValueError(
+            f"Checkpoint VAE không đúng schema ({ckpt_path}): thiếu 'model_state_dict', "
+            "'state_dict', hoặc cặp khóa 'encoder'/'decoder'."
+        )
+    if not isinstance(sd, dict) or not sd:
+        raise ValueError(f"State dict trong checkpoint VAE không hợp lệ hoặc rỗng ({ckpt_path}).")
+    return sd
+
+
+def load_model(checkpoint: str, device: str | torch.device = "cpu") -> GenerativeModel:
+    """Tải checkpoint mô hình VAE tuân thủ interface GenerativeModel.
+
+    Chỉ khi `checkpoint == "auto"` mới khởi tạo mô hình trọng số ngẫu nhiên phục vụ
+    kiểm tra contract. Mọi đường dẫn khác phải tồn tại và đúng schema checkpoint VAE.
+    """
+    dev = torch.device(device)
+    if str(checkpoint) == "auto":
+        model = VAE(image_shape=(3, 32, 32), latent_dim=128, base_channels=32)
         return model.to(dev).eval()
 
-    state = torch.load(ckpt_path, map_location=dev, weights_only=False)
-    image_shape = state.get("image_shape", (3, 32, 32))
-    latent_dim = state.get("latent_dim", 128)
-    base_channels = state.get("base_channels", 32)
+    ckpt_path = Path(checkpoint)
+    if not ckpt_path.is_file():
+        raise FileNotFoundError(f"Không tìm thấy file checkpoint VAE: {checkpoint}")
 
+    payload = torch.load(ckpt_path, map_location=dev, weights_only=False)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Checkpoint VAE phải là dict, nhận được {type(payload).__name__} ({ckpt_path}).")
+
+    if "image_shape" not in payload:
+        raise ValueError(f"Checkpoint VAE thiếu trường bắt buộc 'image_shape' ({ckpt_path}).")
+    image_shape = _validate_image_shape(payload["image_shape"])
+
+    if "latent_dim" not in payload or "base_channels" not in payload:
+        raise ValueError(f"Checkpoint VAE thiếu 'latent_dim' hoặc 'base_channels' ({ckpt_path}).")
+    latent_dim = int(payload["latent_dim"])
+    base_channels = int(payload["base_channels"])
+    if latent_dim <= 0 or base_channels <= 0:
+        raise ValueError(f"latent_dim ({latent_dim}) và base_channels ({base_channels}) phải > 0.")
+
+    sd = _extract_state_dict(payload, ckpt_path)
     model = VAE(image_shape=image_shape, latent_dim=latent_dim, base_channels=base_channels)
-    if "model_state_dict" in state:
-        model.load_state_dict(state["model_state_dict"])
-    elif "state_dict" in state:
-        model.load_state_dict(state["state_dict"])
-    else:
-        model.load_state_dict(state)
-
+    model.load_state_dict(sd)
     return model.to(dev).eval()
 
 
@@ -75,8 +107,9 @@ def build_trainer(config: str, device: str | torch.device = "cpu") -> Trainer:
     # Đọc từ file YAML
     cfg_path = Path(config)
     if not cfg_path.is_file():
-        # Thử tìm theo gốc repo
         cfg_path = Path(__file__).resolve().parents[2] / config
+    if not cfg_path.is_file():
+        raise FileNotFoundError(f"Không tìm thấy file cấu hình VAE: {config}")
 
     with open(cfg_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}

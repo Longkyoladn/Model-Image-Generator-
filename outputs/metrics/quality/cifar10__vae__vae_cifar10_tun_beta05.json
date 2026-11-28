@@ -1,0 +1,22 @@
+{
+  "kind": "quality",
+  "model": "vae",
+  "dataset": "cifar10",
+  "run_name": "vae_cifar10_tun_beta05",
+  "label": "",
+  "stage": "tuning",
+  "eval": {
+    "eval_config": "configs/eval/fid.yaml",
+    "eval_config_hash": "9a5cb5b55babb623",
+    "library": "clean-fid==0.1.35",
+    "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+    "ref_train": "cifar10_train_32",
+    "ref_test": "cifar10_test_32",
+    "ref_val": "cifar10_val_32",
+    "num_gen": 5000
+  },
+  "metrics": {
+    "kid_val_mean": 0.3936730083823204,
+    "kid_val_std": 0.001668415835995584
+  }
+}

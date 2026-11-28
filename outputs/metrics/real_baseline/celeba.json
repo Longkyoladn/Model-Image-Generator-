@@ -1,0 +1,13 @@
+{
+  "kind": "real_baseline",
+  "dataset": "celeba",
+  "metrics": {
+    "fid_floor": 2.077836736803306,
+    "lpips_real": 0.25986334067955613
+  },
+  "lpips_details": {
+    "requested_pairs": 2000,
+    "effective_pairs": 2000,
+    "unique_pairs": 2000
+  }
+}

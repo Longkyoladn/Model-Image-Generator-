@@ -1,0 +1,67 @@
+{
+  "kind": "run",
+  "model": "vae",
+  "dataset": "cifar10",
+  "run_name": "vae_cifar10_full",
+  "stage": "full",
+  "config": "configs/vae/cifar10/base.yaml",
+  "image_size": 32,
+  "num_samples": 50000,
+  "seed": 42,
+  "checkpoint": "outputs\\checkpoints\\cifar10\\vae\\vae_cifar10_full\\best.pt",
+  "checkpoint_includes_optimizer": false,
+  "train_steps": 35150,
+  "batch_size": 64,
+  "precision": "fp32",
+  "loss_type": "mse",
+  "beta": 1.0,
+  "final_loss": 183.876516,
+  "final_recon_loss": 117.078545,
+  "final_kl_loss": 66.797971,
+  "wall_clock_hours": 0.385652,
+  "hardware": [
+    {
+      "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+      "train_hours": 0.072736
+    }
+  ],
+  "eval_config": "configs/eval/fid.yaml",
+  "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+  "curve": [
+    {
+      "step": 7030,
+      "kid_val_mean": 0.1434740424156189,
+      "hardware_hours": {
+        "NVIDIA GeForce RTX 4050 Laptop GPU": 0.014511
+      }
+    },
+    {
+      "step": 14060,
+      "kid_val_mean": 0.11517715103924274,
+      "hardware_hours": {
+        "NVIDIA GeForce RTX 4050 Laptop GPU": 0.028568
+      }
+    },
+    {
+      "step": 21090,
+      "kid_val_mean": 0.11208258546888829,
+      "hardware_hours": {
+        "NVIDIA GeForce RTX 4050 Laptop GPU": 0.04343
+      }
+    },
+    {
+      "step": 28120,
+      "kid_val_mean": 0.11022098653018475,
+      "hardware_hours": {
+        "NVIDIA GeForce RTX 4050 Laptop GPU": 0.058162
+      }
+    },
+    {
+      "step": 35150,
+      "kid_val_mean": 0.1085671042650938,
+      "hardware_hours": {
+        "NVIDIA GeForce RTX 4050 Laptop GPU": 0.072736
+      }
+    }
+  ]
+}

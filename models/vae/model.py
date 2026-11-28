@@ -40,7 +40,7 @@ class Encoder(nn.Module):
                 nn.Sequential(
                     nn.Conv2d(in_c, curr_c, kernel_size=4, stride=2, padding=1),
                     nn.BatchNorm2d(curr_c),
-                    nn.LeakyReLU(0.2, inplace=True),
+                    nn.LeakyReLU(0.2, inplace=False),
                 )
             )
             in_c = curr_c
@@ -126,15 +126,37 @@ class VAE(GenerativeModel):
         }
 
     def load_state_dict(self, state_dict: dict) -> None:
+        if not isinstance(state_dict, dict):
+            raise TypeError(f"state_dict của VAE phải là dict, nhận được {type(state_dict).__name__}.")
+
         if "encoder" in state_dict and "decoder" in state_dict:
-            self.encoder.load_state_dict(state_dict["encoder"])
-            self.decoder.load_state_dict(state_dict["decoder"])
-        else:
-            enc_dict = {k.replace("encoder.", ""): v for k, v in state_dict.items() if k.startswith("encoder.")}
-            dec_dict = {k.replace("decoder.", ""): v for k, v in state_dict.items() if k.startswith("decoder.")}
-            if enc_dict and dec_dict:
-                self.encoder.load_state_dict(enc_dict)
-                self.decoder.load_state_dict(dec_dict)
+            extra = set(state_dict.keys()) - {"encoder", "decoder"}
+            if extra:
+                raise ValueError(f"Schema state_dict của VAE có khóa thừa không hợp lệ: {sorted(extra)}")
+            self.encoder.load_state_dict(state_dict["encoder"], strict=True)
+            self.decoder.load_state_dict(state_dict["decoder"], strict=True)
+            return
+
+        enc_dict = {
+            k.removeprefix("encoder."): v
+            for k, v in state_dict.items()
+            if isinstance(k, str) and k.startswith("encoder.")
+        }
+        dec_dict = {
+            k.removeprefix("decoder."): v
+            for k, v in state_dict.items()
+            if isinstance(k, str) and k.startswith("decoder.")
+        }
+        unmatched = [
+            k for k in state_dict if not (isinstance(k, str) and (k.startswith("encoder.") or k.startswith("decoder.")))
+        ]
+        if not enc_dict or not dec_dict or unmatched:
+            raise ValueError(
+                "Schema state_dict của VAE không hợp lệ: cần bộ khóa ('encoder', 'decoder') "
+                f"hoặc tiền tố 'encoder.'/'decoder.'. Không khớp: {sorted(map(str, unmatched))[:10]}"
+            )
+        self.encoder.load_state_dict(enc_dict, strict=True)
+        self.decoder.load_state_dict(dec_dict, strict=True)
 
     def parameters(self):
         seen = {}

@@ -1,0 +1,2 @@
+model,run_name,params_m,params_train_m,gmacs_per_image,gflops_per_image,train_flops,train_hours,gpu_hours_t4,hardware,train_steps,latency_ms,throughput_img_s,throughput_batch,peak_memory_mb,checkpoint_mb
+VAE,vae_fashion_mnist_full,0.297761,0.725057,0.004481024,0.008962048,136414573363200,0.075389,0.075389,NVIDIA GeForce RTX 4050 Laptop GPU (0.08 h),39050,1.1121199990157038,58515.15503442668,256,27.324604034423828,2.780409812927246

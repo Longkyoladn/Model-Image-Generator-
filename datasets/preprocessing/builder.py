@@ -48,7 +48,7 @@ def denormalize(tensor, norm_range="[-1, 1]"):
         tensor = (tensor + 1.0) / 2.0
     return torch.clamp(tensor, 0.0, 1.0)
 
-def build_dataloader(config_input, split="train", batch_size=None, shuffle=None, num_workers=None):
+def build_dataloader(config_input, split="train", batch_size=None, shuffle=None, num_workers=None, drop_last=None):
     """
     Hàm Factory chung tạo DataLoader cho cả 3 dataset (CelebA, Fashion-MNIST, CIFAR-10)
     dựa vào file YAML cấu hình, đảm bảo mọi tham số (augmentation, normalization,
@@ -166,7 +166,9 @@ def build_dataloader(config_input, split="train", batch_size=None, shuffle=None,
     
     # drop_last CHỈ áp dụng cho tập train để cố định kích thước batch cho BatchNorm/GAN.
     # Tập validation và test TUYỆT ĐỐI không drop_last để giữ đủ 100% mẫu đánh giá FID công bằng.
-    if split == "train":
+    if drop_last is not None:
+        drop_l = bool(drop_last)
+    elif split == "train":
         drop_l = dl_cfg.get("drop_last", True)
     else:
         drop_l = False

@@ -1,0 +1,22 @@
+{
+  "kind": "real_baseline",
+  "dataset": "fashion_mnist",
+  "metrics": {
+    "fid_floor": 2.9105854223395795,
+    "lpips_real": 0.13579004470817746,
+    "fid_custom_floor": 0.34561170061056146
+  },
+  "lpips_details": {
+    "requested_pairs": 2000,
+    "effective_pairs": 2000,
+    "unique_pairs": 2000
+  },
+  "custom_extractor": {
+    "checkpoint": "outputs/checkpoints/fashion_mnist_cnn.pt",
+    "checkpoint_hash": "073864d5fb05caf6",
+    "architecture": "Conv2d(1->32,3x3)+ReLU+MaxPool2d(2) -> Conv2d(32->64,3x3)+ReLU+MaxPool2d(2) -> Linear(4096->128)+ReLU [penultimate 128-d] -> Dropout(0.5) -> Linear(128->10)",
+    "feature_dim": 128,
+    "test_acc": 0.909,
+    "val_acc": 0.9151
+  }
+}

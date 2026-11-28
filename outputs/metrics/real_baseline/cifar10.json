@@ -1,0 +1,13 @@
+{
+  "kind": "real_baseline",
+  "dataset": "cifar10",
+  "metrics": {
+    "fid_floor": 5.304237132057779,
+    "lpips_real": 0.21988641197234393
+  },
+  "lpips_details": {
+    "requested_pairs": 2000,
+    "effective_pairs": 2000,
+    "unique_pairs": 2000
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "kind": "run",
+  "model": "vae",
+  "dataset": "cifar10",
+  "run_name": "vae_cifar10_overfit",
+  "stage": "overfit",
+  "config": "configs/vae/cifar10/base.yaml",
+  "image_size": 32,
+  "num_samples": 256,
+  "seed": 42,
+  "checkpoint": "outputs\\checkpoints\\cifar10\\vae\\vae_cifar10_overfit\\best.pt",
+  "checkpoint_includes_optimizer": false,
+  "train_steps": 200,
+  "batch_size": 64,
+  "precision": "fp32",
+  "loss_type": "mse",
+  "beta": 1.0,
+  "final_loss": 279.701202,
+  "final_recon_loss": 219.447788,
+  "final_kl_loss": 60.253424,
+  "wall_clock_hours": 0.001306,
+  "hardware": [
+    {
+      "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+      "train_hours": 0.000615
+    }
+  ],
+  "eval_config": "configs/eval/fid.yaml",
+  "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7"
+}

@@ -1,0 +1,19 @@
+# Spec benchmark tốc độ cho mô hình VAE trên Fashion-MNIST
+dataset: fashion_mnist
+precision: fp32
+batch_sizes: [1, 64, 256]
+warmup: 5
+repeats: 20
+seed: 0
+
+smoke:
+  batch_sizes: [1, 4]
+  warmup: 2
+  repeats: 2
+  num_quality_images: 200
+
+targets:
+  - model: vae
+    checkpoint: outputs/checkpoints/fashion_mnist/vae/vae_fashion_mnist_full/best.pt
+    run_name: vae_fashion_mnist_full
+    trainer_config: configs/vae/fashion_mnist/base.yaml

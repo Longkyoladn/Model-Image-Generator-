@@ -1,0 +1,30 @@
+{
+  "kind": "run",
+  "model": "vae",
+  "dataset": "celeba",
+  "run_name": "vae_celeba_overfit",
+  "stage": "overfit",
+  "config": "configs/vae/celeba/base.yaml",
+  "image_size": 64,
+  "num_samples": 256,
+  "seed": 42,
+  "checkpoint": "outputs\\checkpoints\\celeba\\vae\\vae_celeba_overfit\\best.pt",
+  "checkpoint_includes_optimizer": false,
+  "train_steps": 200,
+  "batch_size": 64,
+  "precision": "fp32",
+  "loss_type": "mse",
+  "beta": 1.0,
+  "final_loss": 932.115845,
+  "final_recon_loss": 788.56604,
+  "final_kl_loss": 143.549812,
+  "wall_clock_hours": 0.004769,
+  "hardware": [
+    {
+      "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+      "train_hours": 0.001505
+    }
+  ],
+  "eval_config": "configs/eval/fid.yaml",
+  "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7"
+}

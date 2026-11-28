@@ -1,0 +1,35 @@
+{
+  "kind": "quality",
+  "model": "vae",
+  "dataset": "cifar10",
+  "run_name": "vae_cifar10_full",
+  "label": "",
+  "sampler": null,
+  "sampling_steps": null,
+  "eval": {
+    "eval_config": "configs/eval/fid.yaml",
+    "eval_config_hash": "9a5cb5b55babb623",
+    "library": "clean-fid==0.1.35",
+    "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+    "ref_train": "cifar10_train_32",
+    "ref_test": "cifar10_test_32",
+    "ref_train_cache_key": "cifar10_train_32__46f5ea923a6c1a51",
+    "ref_test_cache_key": "cifar10_test_32__815b7b689db9f908",
+    "num_gen": 50000,
+    "lpips_requested_pairs": 2000,
+    "lpips_effective_pairs": 2000
+  },
+  "metrics": {
+    "fid_train_50k": 127.44053964216221,
+    "fid_train_10k": 129.05333014302545,
+    "fid_test_10k_mean": 130.79578911447555,
+    "fid_test_10k_std": 0.12520652244223004,
+    "kid_test_mean": 0.1075146533548832,
+    "kid_test_std": 0.0018289749781682217,
+    "precision": 0.4222,
+    "recall": 0.0079,
+    "density": 0.18942000000000003,
+    "coverage": 0.0737,
+    "lpips_diversity": 0.18689406017027796
+  }
+}

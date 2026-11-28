@@ -1,0 +1,15 @@
+# Cấu hình tuning VAE trên Fashion-MNIST: beta=0.5, latent_dim=64, base_channels=32
+dataset: "fashion_mnist"
+image_shape: [1, 32, 32]
+latent_dim: 64
+base_channels: 32
+
+training:
+  batch_size: 64
+  learning_rate: 0.0005
+  beta: 0.5
+  precision: "fp32"
+  epochs: 50
+  loss_type: "mse"
+  save_interval: 10
+  seed: 42

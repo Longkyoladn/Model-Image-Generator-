@@ -1,0 +1,22 @@
+{
+  "kind": "calibration",
+  "model": "vae",
+  "config": "configs/vae/celeba/base.yaml",
+  "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+  "num_gpus": 1,
+  "batch_size": 64,
+  "precision": "fp32",
+  "warmup_steps": 20,
+  "measured_steps": 200,
+  "elapsed_s": 3.4820980000076815,
+  "step_time_ms": 17.410490000038408,
+  "throughput_img_s": 3675.9447895986164,
+  "env": {
+    "torch": "2.11.0+cu128",
+    "cuda": "12.8",
+    "cudnn_benchmark": false,
+    "python": "3.12.10"
+  },
+  "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+  "dataset": "celeba"
+}

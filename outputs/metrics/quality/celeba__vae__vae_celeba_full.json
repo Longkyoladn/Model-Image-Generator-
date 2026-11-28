@@ -1,0 +1,35 @@
+{
+  "kind": "quality",
+  "model": "vae",
+  "dataset": "celeba",
+  "run_name": "vae_celeba_full",
+  "label": "",
+  "sampler": null,
+  "sampling_steps": null,
+  "eval": {
+    "eval_config": "configs/eval/fid.yaml",
+    "eval_config_hash": "9a5cb5b55babb623",
+    "library": "clean-fid==0.1.35",
+    "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+    "ref_train": "celeba_train_64",
+    "ref_test": "celeba_test_64",
+    "ref_train_cache_key": "celeba_train_64__557ba455e23e4e72",
+    "ref_test_cache_key": "celeba_test_64__2f0fdc7ab82509e9",
+    "num_gen": 50000,
+    "lpips_requested_pairs": 2000,
+    "lpips_effective_pairs": 2000
+  },
+  "metrics": {
+    "fid_train_50k": 68.34340518957563,
+    "fid_train_10k": 69.2256387815732,
+    "fid_test_10k_mean": 68.24458478048183,
+    "fid_test_10k_std": 0.12597790196667524,
+    "kid_test_mean": 0.07072180151939392,
+    "kid_test_std": 0.0009089968746048678,
+    "precision": 0.1278,
+    "recall": 0.01,
+    "density": 0.032279999999999996,
+    "coverage": 0.0379,
+    "lpips_diversity": 0.2025972133167088
+  }
+}

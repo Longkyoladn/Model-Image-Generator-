@@ -12,6 +12,7 @@ clean-fid==0.1.35
 scipy>=1.10
 lpips==0.1.4
 prdc==0.2
+pytorch-msssim>=1.0
 
 # Chi phí tính toán (
 # và cùng phiên bản; mặc định evaluation/flops.py dùng fvcore.

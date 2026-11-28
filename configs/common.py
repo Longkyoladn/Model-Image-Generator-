@@ -17,6 +17,13 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+REFERENCE_ROOT = ROOT / "outputs" / "reference"
+
+
+def reference_split_dir(dataset: str, split: str, root: str | Path | None = None) -> Path:
+    """Đường dẫn chuẩn tới thư mục ảnh thật tham chiếu: <root>/<dataset>/<split>."""
+    base = Path(root) if root is not None else REFERENCE_ROOT
+    return base / dataset / split
 
 
 def git_commit() -> str | None:

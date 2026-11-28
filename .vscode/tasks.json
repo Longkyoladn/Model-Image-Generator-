@@ -1,0 +1,43 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Smoke Test (Dummy Pipeline)",
+      "type": "shell",
+      "command": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_test_benchmark.py",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Smoke Test (VAE - CIFAR-10)",
+      "type": "shell",
+      "command": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_test_benchmark.py --spec configs/eval/speed_vae.yaml",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Smoke Test (VAE - Fashion-MNIST)",
+      "type": "shell",
+      "command": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_test_benchmark.py --spec configs/eval/speed_vae_fashion_mnist.yaml",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Smoke Test (VAE - CelebA)",
+      "type": "shell",
+      "command": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/smoke_test_benchmark.py --spec configs/eval/speed_vae_celeba.yaml",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Train VAE (Smoke Synthetic)",
+      "type": "shell",
+      "command": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe scripts/train_vae.py --config configs/vae/cifar10/base.yaml --epochs 1 --smoke",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

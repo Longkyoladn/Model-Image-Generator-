@@ -1,0 +1,34 @@
+{
+  "kind": "compute",
+  "model": "vae",
+  "dataset": "fashion_mnist",
+  "run_name": "vae_fashion_mnist_full",
+  "label": "",
+  "checkpoint": "best.pt",
+  "sample_kwargs": {},
+  "tool": "fvcore",
+  "tool_version": "0.1.5.post20221221",
+  "macs_convention": "1 MAC = 1 phép nhân-cộng; FLOPs = 2 × MACs",
+  "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+  "params_m": 0.297761,
+  "params_train_m": 0.725057,
+  "gmacs_by_module": {
+    "encoder": 0.004616192,
+    "decoder": 0.004481024
+  },
+  "gmacs_per_forward": 0.004481024,
+  "forward_passes_per_image": 1,
+  "gmacs_per_image": 0.004481024,
+  "gflops_per_image": 0.008962048,
+  "train_flops_per_image": 54583296,
+  "train_formula": "3 × (F_encoder + F_decoder)",
+  "d_steps": null,
+  "unsupported_ops": {
+    "encoder": [
+      "aten::leaky_relu"
+    ],
+    "decoder": [
+      "aten::tanh"
+    ]
+  }
+}

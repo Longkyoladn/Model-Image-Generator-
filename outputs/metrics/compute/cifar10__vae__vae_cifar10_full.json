@@ -1,0 +1,34 @@
+{
+  "kind": "compute",
+  "model": "vae",
+  "dataset": "cifar10",
+  "run_name": "vae_cifar10_full",
+  "label": "",
+  "checkpoint": "best.pt",
+  "sample_kwargs": {},
+  "tool": "fvcore",
+  "tool_version": "0.1.5.post20221221",
+  "macs_convention": "1 MAC = 1 phép nhân-cộng; FLOPs = 2 × MACs",
+  "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+  "params_m": 0.429859,
+  "params_train_m": 1.120451,
+  "gmacs_by_module": {
+    "encoder": 0.00514048,
+    "decoder": 0.00487424
+  },
+  "gmacs_per_forward": 0.00487424,
+  "forward_passes_per_image": 1,
+  "gmacs_per_image": 0.00487424,
+  "gflops_per_image": 0.00974848,
+  "train_flops_per_image": 60088320,
+  "train_formula": "3 × (F_encoder + F_decoder)",
+  "d_steps": null,
+  "unsupported_ops": {
+    "encoder": [
+      "aten::leaky_relu"
+    ],
+    "decoder": [
+      "aten::tanh"
+    ]
+  }
+}

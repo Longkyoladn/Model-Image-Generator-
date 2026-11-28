@@ -1,0 +1,23 @@
+{
+  "model": "vae",
+  "steps": 10,
+  "latent_dim": 128,
+  "prior_endpoints": {
+    "distribution": "N(0, I)",
+    "seed1": 42,
+    "seed2": 100
+  },
+  "rows": [
+    "row_1: prior_slerp (z1 -> z2)",
+    "row_2: prior_lerp (z1 -> z2)",
+    "row_3: test_mu_slerp (Encoder(x1).mu -> Encoder(x2).mu)",
+    "row_4: test_mu_lerp (Encoder(x1).mu -> Encoder(x2).mu)"
+  ],
+  "test_reconstruction_endpoints": {
+    "encoding": "deterministic posterior mean mu = Encoder(x)[0]",
+    "files": [
+      "000000.png",
+      "000001.png"
+    ]
+  }
+}

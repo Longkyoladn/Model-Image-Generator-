@@ -1,0 +1,871 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File (CUDA Python 3.12)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "1. Smoke Test (Dummy Pipeline - 11 Steps)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/smoke_test_benchmark.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "2a. Smoke Test (VAE - CIFAR-10)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/smoke_test_benchmark.py",
+      "args": [
+        "--spec",
+        "configs/eval/speed_vae.yaml"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "2b. Smoke Test (VAE - Fashion-MNIST)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/smoke_test_benchmark.py",
+      "args": [
+        "--spec",
+        "configs/eval/speed_vae_fashion_mnist.yaml"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "2c. Smoke Test (VAE - CelebA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/smoke_test_benchmark.py",
+      "args": [
+        "--spec",
+        "configs/eval/speed_vae_celeba.yaml"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "3a. Overfit Check VAE (CIFAR-10 - 256 imgs)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/cifar10/base.yaml",
+        "--stage",
+        "overfit",
+        "--overfit-samples",
+        "256",
+        "--epochs",
+        "50",
+        "--run-name",
+        "vae_cifar10_overfit",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "3b. Overfit Check VAE (Fashion-MNIST - 256 imgs)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/fashion_mnist/base.yaml",
+        "--stage",
+        "overfit",
+        "--overfit-samples",
+        "256",
+        "--epochs",
+        "50",
+        "--run-name",
+        "vae_fashion_mnist_overfit",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "3c. Overfit Check VAE (CelebA - 256 imgs)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/celeba/base.yaml",
+        "--stage",
+        "overfit",
+        "--overfit-samples",
+        "256",
+        "--epochs",
+        "50",
+        "--run-name",
+        "vae_celeba_overfit",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "4a. Tuning VAE (CIFAR-10 - beta05, 15 ep)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/cifar10/beta05.yaml",
+        "--stage",
+        "tuning",
+        "--epochs",
+        "15",
+        "--run-name",
+        "vae_cifar10_tun_beta05",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "4b. Tuning VAE (Fashion-MNIST - beta05, 15 ep)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/fashion_mnist/beta05.yaml",
+        "--stage",
+        "tuning",
+        "--epochs",
+        "15",
+        "--run-name",
+        "vae_fashion_mnist_tun_beta05",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "4c. Tuning VAE (CelebA - beta05, 10 ep)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/celeba/beta05.yaml",
+        "--stage",
+        "tuning",
+        "--epochs",
+        "10",
+        "--run-name",
+        "vae_celeba_tun_beta05",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "5a. Train VAE Full (CIFAR-10 - CUDA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/cifar10/base.yaml",
+        "--stage",
+        "full",
+        "--run-name",
+        "vae_cifar10_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "5b. Train VAE Full (Fashion-MNIST - CUDA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/fashion_mnist/base.yaml",
+        "--stage",
+        "full",
+        "--run-name",
+        "vae_fashion_mnist_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "5c. Train VAE Full (CelebA - CUDA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/train_vae.py",
+      "args": [
+        "--config",
+        "configs/vae/celeba/base.yaml",
+        "--stage",
+        "full",
+        "--run-name",
+        "vae_celeba_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "6. Export Reference Images (All Datasets)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/export_reference_images.py",
+      "args": [
+        "--dataset",
+        "all",
+        "--overwrite"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "7a. Sample VAE 50k (CIFAR-10)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/sample_vae.py",
+      "args": [
+        "--checkpoint",
+        "outputs/checkpoints/cifar10/vae/vae_cifar10_full/best.pt",
+        "--num-samples",
+        "50000",
+        "--seed",
+        "42",
+        "--output-dir",
+        "outputs/samples/cifar10/vae/vae_cifar10_full",
+        "--device",
+        "cuda",
+        "--overwrite"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "7b. Sample VAE 50k (Fashion-MNIST)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/sample_vae.py",
+      "args": [
+        "--checkpoint",
+        "outputs/checkpoints/fashion_mnist/vae/vae_fashion_mnist_full/best.pt",
+        "--num-samples",
+        "50000",
+        "--seed",
+        "42",
+        "--output-dir",
+        "outputs/samples/fashion_mnist/vae/vae_fashion_mnist_full",
+        "--device",
+        "cuda",
+        "--overwrite"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "7c. Sample VAE 50k (CelebA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/sample_vae.py",
+      "args": [
+        "--checkpoint",
+        "outputs/checkpoints/celeba/vae/vae_celeba_full/best.pt",
+        "--num-samples",
+        "50000",
+        "--seed",
+        "42",
+        "--output-dir",
+        "outputs/samples/celeba/vae/vae_celeba_full",
+        "--device",
+        "cuda",
+        "--overwrite"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "8a. Render Samples Grid (CIFAR-10)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/render_samples.py",
+      "args": [
+        "--model",
+        "vae",
+        "--checkpoint",
+        "outputs/checkpoints/cifar10/vae/vae_cifar10_full/best.pt",
+        "--dataset",
+        "cifar10",
+        "--run-name",
+        "vae_cifar10_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "8b. Render Samples Grid (Fashion-MNIST)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/render_samples.py",
+      "args": [
+        "--model",
+        "vae",
+        "--checkpoint",
+        "outputs/checkpoints/fashion_mnist/vae/vae_fashion_mnist_full/best.pt",
+        "--dataset",
+        "fashion_mnist",
+        "--run-name",
+        "vae_fashion_mnist_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "8c. Render Samples Grid (CelebA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/render_samples.py",
+      "args": [
+        "--model",
+        "vae",
+        "--checkpoint",
+        "outputs/checkpoints/celeba/vae/vae_celeba_full/best.pt",
+        "--dataset",
+        "celeba",
+        "--run-name",
+        "vae_celeba_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "9a. Interpolate VAE (CIFAR-10)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/interpolate_vae.py",
+      "args": [
+        "--checkpoint",
+        "outputs/checkpoints/cifar10/vae/vae_cifar10_full/best.pt",
+        "--dataset",
+        "cifar10",
+        "--run-name",
+        "vae_cifar10_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "9b. Interpolate VAE (Fashion-MNIST)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/interpolate_vae.py",
+      "args": [
+        "--checkpoint",
+        "outputs/checkpoints/fashion_mnist/vae/vae_fashion_mnist_full/best.pt",
+        "--dataset",
+        "fashion_mnist",
+        "--run-name",
+        "vae_fashion_mnist_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "9c. Interpolate VAE (CelebA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/interpolate_vae.py",
+      "args": [
+        "--checkpoint",
+        "outputs/checkpoints/celeba/vae/vae_celeba_full/best.pt",
+        "--dataset",
+        "celeba",
+        "--run-name",
+        "vae_celeba_full",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "10a. Evaluate Quality (CIFAR-10)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/run_quality.py",
+      "args": [
+        "--model",
+        "vae",
+        "--dataset",
+        "cifar10",
+        "--run-name",
+        "vae_cifar10_full",
+        "--fake",
+        "outputs/samples/cifar10/vae/vae_cifar10_full",
+        "--resolution",
+        "32",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "10b. Evaluate Quality (Fashion-MNIST + Custom CNN FID)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/run_quality.py",
+      "args": [
+        "--model",
+        "vae",
+        "--dataset",
+        "fashion_mnist",
+        "--run-name",
+        "vae_fashion_mnist_full",
+        "--fake",
+        "outputs/samples/fashion_mnist/vae/vae_fashion_mnist_full",
+        "--resolution",
+        "32",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "10c. Evaluate Quality (CelebA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/run_quality.py",
+      "args": [
+        "--model",
+        "vae",
+        "--dataset",
+        "celeba",
+        "--run-name",
+        "vae_celeba_full",
+        "--fake",
+        "outputs/samples/celeba/vae/vae_celeba_full",
+        "--resolution",
+        "64",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "11a. Benchmark Speed (VAE - CIFAR-10)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/speed.py",
+      "args": [
+        "--spec",
+        "configs/eval/speed_vae.yaml",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "11b. Benchmark Speed (VAE - Fashion-MNIST)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/speed.py",
+      "args": [
+        "--spec",
+        "configs/eval/speed_vae_fashion_mnist.yaml",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "11c. Benchmark Speed (VAE - CelebA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/speed.py",
+      "args": [
+        "--spec",
+        "configs/eval/speed_vae_celeba.yaml",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "12a. Measure FLOPs/MACs (VAE - CIFAR-10)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/flops.py",
+      "args": [
+        "--model",
+        "vae",
+        "--checkpoint",
+        "outputs/checkpoints/cifar10/vae/vae_cifar10_full/best.pt",
+        "--dataset",
+        "cifar10",
+        "--run-name",
+        "vae_cifar10_full"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "12b. Measure FLOPs/MACs (VAE - Fashion-MNIST)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/flops.py",
+      "args": [
+        "--model",
+        "vae",
+        "--checkpoint",
+        "outputs/checkpoints/fashion_mnist/vae/vae_fashion_mnist_full/best.pt",
+        "--dataset",
+        "fashion_mnist",
+        "--run-name",
+        "vae_fashion_mnist_full"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "12c. Measure FLOPs/MACs (VAE - CelebA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/flops.py",
+      "args": [
+        "--model",
+        "vae",
+        "--checkpoint",
+        "outputs/checkpoints/celeba/vae/vae_celeba_full/best.pt",
+        "--dataset",
+        "celeba",
+        "--run-name",
+        "vae_celeba_full"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "13a. Calibrate Hardware (VAE - CIFAR-10)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/calibrate.py",
+      "args": [
+        "--model",
+        "vae",
+        "--dataset",
+        "cifar10",
+        "--config",
+        "configs/vae/cifar10/base.yaml",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "13b. Calibrate Hardware (VAE - Fashion-MNIST)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/calibrate.py",
+      "args": [
+        "--model",
+        "vae",
+        "--dataset",
+        "fashion_mnist",
+        "--config",
+        "configs/vae/fashion_mnist/base.yaml",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "13c. Calibrate Hardware (VAE - CelebA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/evaluation/calibrate.py",
+      "args": [
+        "--model",
+        "vae",
+        "--dataset",
+        "celeba",
+        "--config",
+        "configs/vae/celeba/base.yaml",
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "14. Train Fashion-MNIST Classifier CNN (CUDA)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/models/classifiers/fashion_mnist_cnn.py",
+      "args": [
+        "--device",
+        "cuda"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "15a. Aggregate Results (Official T4 Strict)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/aggregate_results.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "name": "15b. Aggregate Results (Local RTX 4050 Preview)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "C:\\Users\\GIGABYTE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "program": "${workspaceFolder}/scripts/aggregate_results.py",
+      "args": [
+        "--reference-device",
+        "RTX 4050",
+        "--allow-inconsistent"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  ]
+}

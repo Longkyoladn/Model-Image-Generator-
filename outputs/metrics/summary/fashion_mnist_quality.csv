@@ -1,0 +1,2 @@
+model,run_name,fid_train_50k,fid_test_10k,fid_test_10k_std,kid_test,kid_test_std,precision,recall,density,coverage,lpips_diversity
+VAE,vae_fashion_mnist_full,87.61784162717927,89.64701595214227,0.7471672347038076,63.26102294027805,1.5822025976281828,0.1881,0.1042,0.07464,0.112,0.10130441670073197

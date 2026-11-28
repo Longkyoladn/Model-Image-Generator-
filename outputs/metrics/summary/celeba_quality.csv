@@ -1,0 +1,2 @@
+model,run_name,fid_train_50k,fid_test_10k,fid_test_10k_std,kid_test,kid_test_std,precision,recall,density,coverage,lpips_diversity
+VAE,vae_celeba_full,68.34340518957563,68.24458478048183,0.12597790196667524,70.72180151939392,0.9089968746048678,0.1278,0.01,0.032279999999999996,0.0379,0.2025972133167088

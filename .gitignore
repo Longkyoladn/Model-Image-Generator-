@@ -31,6 +31,12 @@ datasets/reference/
 # Generated samples from experimental runs (ngoại trừ ảnh báo cáo nhỏ trong outputs/data_analysis/)
 outputs/samples/**/images/
 outputs/samples/**/*.png
+outputs/samples/**/manifest.json
+
+# Evaluation caches & temporary smoke outputs (Tuyệt đối không commit theo Mục 5)
+outputs/cache/
+smoke_out/
+nul
 
 # Metrics & Logs lớn
 outputs/metrics/**/*.log

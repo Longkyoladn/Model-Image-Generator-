@@ -1,0 +1,39 @@
+{
+  "kind": "run",
+  "model": "vae",
+  "dataset": "fashion_mnist",
+  "run_name": "vae_fashion_mnist_tun_beta05",
+  "stage": "tuning",
+  "config": "configs/vae/fashion_mnist/beta05.yaml",
+  "image_size": 32,
+  "num_samples": 5000,
+  "seed": 42,
+  "checkpoint": "outputs\\checkpoints\\fashion_mnist\\vae\\vae_fashion_mnist_tun_beta05\\best.pt",
+  "checkpoint_includes_optimizer": false,
+  "train_steps": 11715,
+  "batch_size": 64,
+  "precision": "fp32",
+  "loss_type": "mse",
+  "beta": 0.5,
+  "final_loss": 50.71812,
+  "final_recon_loss": 33.467913,
+  "final_kl_loss": 34.500415,
+  "wall_clock_hours": 0.131782,
+  "hardware": [
+    {
+      "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+      "train_hours": 0.021255
+    }
+  ],
+  "eval_config": "configs/eval/fid.yaml",
+  "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+  "curve": [
+    {
+      "step": 11715,
+      "kid_val_mean": 0.0838488818705082,
+      "hardware_hours": {
+        "NVIDIA GeForce RTX 4050 Laptop GPU": 0.021255
+      }
+    }
+  ]
+}

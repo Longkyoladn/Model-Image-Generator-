@@ -1,0 +1,15 @@
+# Cấu hình tuning VAE trên CelebA (64x64): L1 reconstruction loss + beta=0.5
+dataset: "celeba"
+image_shape: [3, 64, 64]
+latent_dim: 256
+base_channels: 64
+
+training:
+  batch_size: 64
+  learning_rate: 0.0002
+  beta: 0.5
+  precision: "fp32"
+  epochs: 50
+  loss_type: "l1"
+  save_interval: 10
+  seed: 42

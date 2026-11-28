@@ -1,0 +1,47 @@
+{
+  "kind": "quality",
+  "model": "vae",
+  "dataset": "fashion_mnist",
+  "run_name": "vae_fashion_mnist_full",
+  "label": "",
+  "sampler": null,
+  "sampling_steps": null,
+  "eval": {
+    "eval_config": "configs/eval/fid.yaml",
+    "eval_config_hash": "9a5cb5b55babb623",
+    "library": "clean-fid==0.1.35",
+    "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+    "ref_train": "fashion_mnist_train_32",
+    "ref_test": "fashion_mnist_test_32",
+    "ref_train_cache_key": "fashion_mnist_train_32__7a33d63c9f7a4d50",
+    "ref_test_cache_key": "fashion_mnist_test_32__0d1f13e118ad9e13",
+    "num_gen": 50000,
+    "lpips_requested_pairs": 2000,
+    "lpips_effective_pairs": 2000
+  },
+  "metrics": {
+    "fid_train_50k": 87.61784162717927,
+    "fid_train_10k": 88.17934655209524,
+    "fid_test_10k_mean": 89.64701595214227,
+    "fid_test_10k_std": 0.7471672347038076,
+    "kid_test_mean": 0.06326102294027805,
+    "kid_test_std": 0.0015822025976281828,
+    "precision": 0.1881,
+    "recall": 0.1042,
+    "density": 0.07464,
+    "coverage": 0.112,
+    "lpips_diversity": 0.10130441670073197,
+    "fid_custom_train_50k": 124.15921890716538,
+    "fid_custom_train_10k": 124.8549260856073,
+    "fid_custom_test_10k_mean": 123.7954554445281,
+    "fid_custom_test_10k_std": 1.504328849099357
+  },
+  "custom_extractor": {
+    "checkpoint": "outputs/checkpoints/fashion_mnist_cnn.pt",
+    "checkpoint_hash": "073864d5fb05caf6",
+    "architecture": "Conv2d(1->32,3x3)+ReLU+MaxPool2d(2) -> Conv2d(32->64,3x3)+ReLU+MaxPool2d(2) -> Linear(4096->128)+ReLU [penultimate 128-d] -> Dropout(0.5) -> Linear(128->10)",
+    "feature_dim": 128,
+    "test_acc": 0.909,
+    "val_acc": 0.9151
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "kind": "speed",
+  "model": "vae",
+  "dataset": "celeba",
+  "run_name": "vae_celeba_full",
+  "label": "",
+  "checkpoint": "best.pt",
+  "checkpoint_mb": 17.308527946472168,
+  "load_time_s": 0.15135259996168315,
+  "model_shared": false,
+  "sample_kwargs": {},
+  "forward_passes_per_image": 1,
+  "image_shape": [
+    3,
+    64,
+    64
+  ],
+  "params_m": 1.743011,
+  "precision": "fp32",
+  "warmup": 5,
+  "repeats_requested": 20,
+  "complete": true,
+  "seed": 0,
+  "env": {
+    "device": "cuda",
+    "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "torch": "2.11.0+cu128",
+    "cuda": "12.8",
+    "cudnn": 91900,
+    "cudnn_benchmark": false,
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel"
+  },
+  "commit": "b310b152f863cb3aa2fee0173412f7a862e8a5e7",
+  "results": [
+    {
+      "batch_size": 1,
+      "oom": false,
+      "n_repeats": 20,
+      "time_per_batch_s_mean": 0.0014701700041769073,
+      "time_per_batch_s_std": 0.0005660621812452084,
+      "time_per_image_ms": 1.4701700041769072,
+      "throughput_img_s": 680.1934450838304,
+      "peak_memory_mb": 6.979892730712891
+    },
+    {
+      "batch_size": 64,
+      "oom": false,
+      "n_repeats": 20,
+      "time_per_batch_s_mean": 0.0033967549941735344,
+      "time_per_batch_s_std": 0.00018035632242383433,
+      "time_per_image_ms": 0.05307429678396147,
+      "throughput_img_s": 18841.512004774977,
+      "peak_memory_mb": 31.83877944946289
+    },
+    {
+      "batch_size": 256,
+      "oom": false,
+      "n_repeats": 20,
+      "time_per_batch_s_mean": 0.02002766999648884,
+      "time_per_batch_s_std": 0.00015598907379920586,
+      "time_per_image_ms": 0.07823308592378453,
+      "throughput_img_s": 12782.315668516645,
+      "peak_memory_mb": 107.02627944946289
+    }
+  ]
+}
